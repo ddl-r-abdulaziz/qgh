@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,13 +19,16 @@ type GitRepo struct {
 }
 
 func main() {
+	skipIgnore := flag.Bool("skip-ignore", false, "Skip .gitignore files and traverse all directories")
+	flag.Parse()
+
 	workingDir, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting working directory: %v\n", err)
 		os.Exit(1)
 	}
 
-	repos, err := findGitRepositories(workingDir)
+	repos, err := findGitRepositories(workingDir, *skipIgnore)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error finding git repositories: %v\n", err)
 		os.Exit(1)
@@ -37,7 +42,7 @@ func main() {
 	printRepositories(repos)
 }
 
-func findGitRepositories(rootDir string) ([]GitRepo, error) {
+func findGitRepositories(rootDir string, skipIgnore bool) ([]GitRepo, error) {
 	var repos []GitRepo
 
 	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
@@ -68,10 +73,56 @@ func findGitRepositories(rootDir string) ([]GitRepo, error) {
 			return filepath.SkipDir
 		}
 
+		if !skipIgnore && info.IsDir() {
+			if shouldSkipDirectory(path) {
+				return filepath.SkipDir
+			}
+		}
+
 		return nil
 	})
 
 	return repos, err
+}
+
+func shouldSkipDirectory(dirPath string) bool {
+	parentDir := filepath.Dir(dirPath)
+	gitignorePath := filepath.Join(parentDir, ".gitignore")
+	
+	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
+		return false
+	}
+
+	file, err := os.Open(gitignorePath)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	dirName := filepath.Base(dirPath)
+	scanner := bufio.NewScanner(file)
+	
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		
+		if strings.HasSuffix(line, "/") {
+			line = strings.TrimSuffix(line, "/")
+		}
+		
+		if line == dirName || line == "*" {
+			return true
+		}
+		
+		matched, err := filepath.Match(line, dirName)
+		if err == nil && matched {
+			return true
+		}
+	}
+	
+	return false
 }
 
 func getOriginRemote(repoDir string) (string, error) {
