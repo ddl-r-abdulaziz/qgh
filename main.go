@@ -147,7 +147,8 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor < len(m.filteredRepos)-1 {
 			m.cursor++
 			// Calculate visible area height (terminal height minus header, search, footer)
-			visibleHeight := m.terminalHeight - 6 // Account for header, search box, and footer
+			// Header(1) + 2 newlines(2) + search box with border(3) + 2 newlines(2) + newline before footer(1) + footer(1) = 10 lines
+			visibleHeight := m.terminalHeight - 10
 			if visibleHeight < 1 {
 				visibleHeight = 1
 			}
@@ -215,7 +216,8 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.detailCursor < maxItems-1 {
 			m.detailCursor++
 			// Calculate visible area height for detail view
-			visibleHeight := m.terminalHeight - 8 // Account for header, name, url, footer
+			// Header(1) + 2 newlines(2) + Name(1) + 2 newlines(2) + URL(1) + 2 newlines(2) + "Pull Requests:"(1) + newline before footer(1) + footer(1) = 11 lines
+			visibleHeight := m.terminalHeight - 11
 			if visibleHeight < 1 {
 				visibleHeight = 1
 			}
@@ -391,7 +393,8 @@ func (m model) renderListView() string {
 			Bold(true)
 		
 		// Calculate visible area height (terminal height minus header, search, footer)
-		visibleHeight := m.terminalHeight - 6 // Account for header, search box, and footer
+		// Header(1) + 2 newlines(2) + search box with border(3) + 2 newlines(2) + newline before footer(1) + footer(1) = 10 lines
+		visibleHeight := m.terminalHeight - 10
 		if visibleHeight < 1 {
 			visibleHeight = 1
 		}
@@ -491,7 +494,8 @@ func (m model) renderDetailView() string {
 		b.WriteString("\n")
 	} else {
 		// Calculate visible area height for PR list
-		visibleHeight := m.terminalHeight - 8 // Account for header, name, url, footer
+		// Header(1) + 2 newlines(2) + Name(1) + 2 newlines(2) + URL(1) + 2 newlines(2) + "Pull Requests:"(1) + newline before footer(1) + footer(1) = 11 lines
+		visibleHeight := m.terminalHeight - 11
 		if visibleHeight < 1 {
 			visibleHeight = 1
 		}
