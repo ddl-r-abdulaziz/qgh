@@ -128,7 +128,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c", "q":
+	case "ctrl+c":
 		return m, tea.Quit
 	case "c":
 		if len(m.filteredRepos) > 0 {
@@ -225,7 +225,7 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c", "q":
+	case "ctrl+c":
 		return m, tea.Quit
 	case "c":
 		if m.selectedRepo != nil {
@@ -520,7 +520,7 @@ func (m model) renderListView() string {
 	}
 	
 	b.WriteString("\n")
-	b.WriteString("Use ↑/↓ or j/k to navigate, PgUp/PgDn for pages, Enter for details, c to cd and exit, Esc to clear search/quit, q/Ctrl+C to quit")
+	b.WriteString("Use ↑/↓ or j/k to navigate, PgUp/PgDn for pages, Enter for details, c to cd and exit, Esc to clear search/quit, Ctrl+C to quit")
 	
 	return b.String()
 }
@@ -635,7 +635,7 @@ func (m model) renderDetailView() string {
 	}
 	
 	b.WriteString("\n")
-	b.WriteString("Use ↑/↓ or j/k to navigate, PgUp/PgDn for pages, Enter to open, c to cd and exit, Esc to go back, q/Ctrl+C to quit")
+	b.WriteString("Use ↑/↓ or j/k to navigate, PgUp/PgDn for pages, Enter to open, c to cd and exit, Esc to go back, Ctrl+C to quit")
 	
 	return b.String()
 }

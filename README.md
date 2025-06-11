@@ -2,7 +2,8 @@
 
 A fast, interactive CLI tool for exploring and managing git repositories with GitHub integration.
 
-WARNING: I have no idea what this will do to your github api usage :D
+This is for you poor crazy fools who manage infra for a bunch of microservices.
+
 
 ## Features
 
