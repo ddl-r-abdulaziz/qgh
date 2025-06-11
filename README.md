@@ -2,6 +2,8 @@
 
 A fast, interactive CLI tool for exploring and managing git repositories with GitHub integration.
 
+WARNING: I have no idea what this will do to your github api usage :D
+
 ## Features
 
 - **Interactive Terminal UI**: Search and navigate repositories with a responsive interface
@@ -32,7 +34,14 @@ make install # will prompt for sudo password
 ## Usage
 
 ```shell
-qgh
+qgh [search-term]
+```
+
+**Examples:**
+```shell
+qgh                    # Launch with no initial search
+qgh redis              # Start with "redis" search
+qgh oic                # Start with mnemonic search for "operations-istio-cni"
 ```
 
 ### Options

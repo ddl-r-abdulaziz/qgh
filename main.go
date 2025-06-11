@@ -252,6 +252,12 @@ func main() {
 	skipIgnore := flag.Bool("skip-ignore", false, "Skip .gitignore files and traverse all directories")
 	flag.Parse()
 
+	// Get optional search term from positional arguments
+	var initialSearch string
+	if len(flag.Args()) > 0 {
+		initialSearch = flag.Args()[0]
+	}
+
 	workingDir, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting working directory: %v\n", err)
@@ -273,8 +279,13 @@ func main() {
 		m := model{
 			repos:         repos,
 			filteredRepos: repos,
-			searchInput:   "",
+			searchInput:   initialSearch,
 			cursor:        0,
+		}
+		
+		// Apply initial filter if search term provided
+		if initialSearch != "" {
+			m.filterRepos()
 		}
 		
 		p := tea.NewProgram(m, tea.WithAltScreen())
