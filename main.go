@@ -26,12 +26,45 @@ type GitRepo struct {
 	PRCount   int
 }
 
+type PR struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	URL    string `json:"url"`
+}
+
+type viewState int
+
+const (
+	listView viewState = iota
+	detailView
+)
+
 type model struct {
 	repos        []GitRepo
 	filteredRepos []GitRepo
 	searchInput  string
 	cursor       int
 	minPaths     []string
+	
+	// Detail view state
+	currentView    viewState
+	selectedRepo   *GitRepo
+	repoDetails    []PR
+	detailCursor   int
+	loadingPRs     bool
+	prLoadError    string
+}
+
+type prLoadedMsg struct {
+	prs []PR
+	err error
+}
+
+func loadPRsCmd(repoURL string) tea.Cmd {
+	return func() tea.Msg {
+		prs, err := getRepositoryPRs(repoURL)
+		return prLoadedMsg{prs: prs, err: err}
+	}
 }
 
 func (m model) Init() tea.Cmd {
@@ -40,34 +73,95 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case prLoadedMsg:
+		m.loadingPRs = false
+		if msg.err != nil {
+			m.prLoadError = msg.err.Error()
+		} else {
+			m.repoDetails = msg.prs
+			m.prLoadError = ""
+		}
+		return m, nil
+		
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q", "esc":
-			return m, tea.Quit
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-		case "down", "j":
-			if m.cursor < len(m.filteredRepos)-1 {
-				m.cursor++
-			}
-		case "enter":
-			if len(m.filteredRepos) > 0 {
-				repo := m.filteredRepos[m.cursor]
-				if repo.GitHubURL != "N/A" && repo.GitHubURL != "Non-GitHub" {
-					openURL(repo.GitHubURL)
+		if m.currentView == listView {
+			return m.updateListView(msg)
+		} else {
+			return m.updateDetailView(msg)
+		}
+	}
+	return m, nil
+}
+
+func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "up", "k":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case "down", "j":
+		if m.cursor < len(m.filteredRepos)-1 {
+			m.cursor++
+		}
+	case "enter":
+		if len(m.filteredRepos) > 0 {
+			repo := m.filteredRepos[m.cursor]
+			m.selectedRepo = &repo
+			m.currentView = detailView
+			m.detailCursor = 0
+			m.repoDetails = nil
+			m.loadingPRs = true
+			m.prLoadError = ""
+			return m, loadPRsCmd(repo.GitHubURL)
+		}
+	case "backspace":
+		if len(m.searchInput) > 0 {
+			m.searchInput = m.searchInput[:len(m.searchInput)-1]
+			m.filterRepos()
+		}
+	default:
+		if len(msg.String()) == 1 {
+			m.searchInput += msg.String()
+			m.filterRepos()
+		}
+	}
+	return m, nil
+}
+
+func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "esc":
+		m.currentView = listView
+		m.selectedRepo = nil
+		m.repoDetails = nil
+		m.detailCursor = 0
+	case "up", "k":
+		if m.detailCursor > 0 {
+			m.detailCursor--
+		}
+	case "down", "j":
+		maxItems := 1 // URL field
+		if len(m.repoDetails) > 0 {
+			maxItems += len(m.repoDetails)
+		}
+		if m.detailCursor < maxItems-1 {
+			m.detailCursor++
+		}
+	case "enter":
+		if m.selectedRepo != nil {
+			if m.detailCursor == 0 {
+				// Open repository URL
+				if m.selectedRepo.GitHubURL != "N/A" && m.selectedRepo.GitHubURL != "Non-GitHub" {
+					openURL(m.selectedRepo.GitHubURL)
 				}
-			}
-		case "backspace":
-			if len(m.searchInput) > 0 {
-				m.searchInput = m.searchInput[:len(m.searchInput)-1]
-				m.filterRepos()
-			}
-		default:
-			if len(msg.String()) == 1 {
-				m.searchInput += msg.String()
-				m.filterRepos()
+			} else if len(m.repoDetails) > 0 && m.detailCursor-1 < len(m.repoDetails) {
+				// Open PR URL
+				pr := m.repoDetails[m.detailCursor-1]
+				openURL(pr.URL)
 			}
 		}
 	}
@@ -173,6 +267,14 @@ func isWordBoundary(text string, pos int) bool {
 }
 
 func (m model) View() string {
+	if m.currentView == listView {
+		return m.renderListView()
+	} else {
+		return m.renderDetailView()
+	}
+}
+
+func (m model) renderListView() string {
 	var b strings.Builder
 	
 	searchStyle := lipgloss.NewStyle().
@@ -213,12 +315,6 @@ func (m model) View() string {
 			Foreground(lipgloss.Color("0")).
 			Padding(0, 1).
 			Bold(true)
-			
-		prPillStyle := lipgloss.NewStyle().
-			Background(lipgloss.Color("5")).
-			Foreground(lipgloss.Color("0")).
-			Padding(0, 1).
-			Bold(true)
 		
 		for i, repo := range m.filteredRepos {
 			pathColumn := fmt.Sprintf("%-*s", maxPathLen, minPaths[i])
@@ -227,11 +323,6 @@ func (m model) View() string {
 			if repo.GitHubURL != "N/A" && repo.GitHubURL != "Non-GitHub" {
 				githubPill := githubPillStyle.Render("github")
 				line = fmt.Sprintf("%s  %s", line, githubPill)
-			}
-			
-			if repo.PRCount > 0 {
-				prPill := prPillStyle.Render(fmt.Sprintf("PR[%d]", repo.PRCount))
-				line = fmt.Sprintf("%s  %s", line, prPill)
 			}
 			
 			if i == m.cursor {
@@ -243,7 +334,76 @@ func (m model) View() string {
 	}
 	
 	b.WriteString("\n")
-	b.WriteString("Use ↑/↓ or j/k to navigate, Enter to open GitHub URL, q/Esc/Ctrl+C to quit")
+	b.WriteString("Use ↑/↓ or j/k to navigate, Enter for details, q/Ctrl+C to quit")
+	
+	return b.String()
+}
+
+func (m model) renderDetailView() string {
+	var b strings.Builder
+	
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("205"))
+	
+	selectedStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("62")).
+		Foreground(lipgloss.Color("230"))
+		
+	labelStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("14"))
+		
+	loadingStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("11"))
+		
+	errorStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("9"))
+	
+	if m.selectedRepo == nil {
+		return "No repository selected"
+	}
+	
+	b.WriteString(headerStyle.Render("Repository Details"))
+	b.WriteString("\n\n")
+	
+	b.WriteString(labelStyle.Render("Name: "))
+	b.WriteString(m.selectedRepo.Directory)
+	b.WriteString("\n\n")
+	
+	b.WriteString(labelStyle.Render("URL: "))
+	urlLine := m.selectedRepo.GitHubURL
+	if m.detailCursor == 0 {
+		urlLine = selectedStyle.Render(urlLine)
+	}
+	b.WriteString(urlLine)
+	b.WriteString("\n\n")
+	
+	b.WriteString(labelStyle.Render("Pull Requests:"))
+	b.WriteString("\n")
+	
+	if m.loadingPRs {
+		b.WriteString(loadingStyle.Render("Loading PRs..."))
+		b.WriteString("\n")
+	} else if m.prLoadError != "" {
+		b.WriteString(errorStyle.Render(fmt.Sprintf("Error: %s", m.prLoadError)))
+		b.WriteString("\n")
+	} else if len(m.repoDetails) == 0 {
+		b.WriteString("No open PRs by current user")
+		b.WriteString("\n")
+	} else {
+		for i, pr := range m.repoDetails {
+			prLine := fmt.Sprintf("#%d: %s", pr.Number, pr.Title)
+			if m.detailCursor == i+1 {
+				prLine = selectedStyle.Render(prLine)
+			}
+			b.WriteString(prLine)
+			b.WriteString("\n")
+		}
+	}
+	
+	b.WriteString("\n")
+	b.WriteString("Use ↑/↓ or j/k to navigate, Enter to open, Esc to go back, q/Ctrl+C to quit")
 	
 	return b.String()
 }
@@ -281,6 +441,12 @@ func main() {
 			filteredRepos: repos,
 			searchInput:   initialSearch,
 			cursor:        0,
+			currentView:   listView,
+			selectedRepo:  nil,
+			repoDetails:   nil,
+			detailCursor:  0,
+			loadingPRs:    false,
+			prLoadError:   "",
 		}
 		
 		// Apply initial filter if search term provided
@@ -342,13 +508,12 @@ func findGitRepositories(rootDir string, skipIgnore bool) ([]GitRepo, error) {
 			}
 
 			githubURL := convertToGitHubURL(origin)
-			prCount := getPRCount(githubURL)
 
 			repos = append(repos, GitRepo{
 				Directory: repoDir,
 				Origin:    origin,
 				GitHubURL: githubURL,
-				PRCount:   prCount,
+				PRCount:   0, // Will be loaded on-demand in detail view
 			})
 
 			return filepath.SkipDir
@@ -494,6 +659,49 @@ func getPRCount(repoURL string) int {
 	}
 
 	return len(prs)
+}
+
+func getRepositoryPRs(repoURL string) ([]PR, error) {
+	if repoURL == "N/A" || repoURL == "Non-GitHub" {
+		return nil, fmt.Errorf("not a GitHub repository")
+	}
+
+	// Check GitHub CLI authentication
+	if !checkGitHubAuth() {
+		return nil, fmt.Errorf("GitHub CLI not authenticated")
+	}
+
+	// Extract owner/repo from GitHub URL
+	re := regexp.MustCompile(`https://github\.com/([^/]+)/([^/]+)`)
+	matches := re.FindStringSubmatch(repoURL)
+	if len(matches) != 3 {
+		return nil, fmt.Errorf("invalid GitHub URL format")
+	}
+
+	owner := matches[1]
+	repo := matches[2]
+
+	// Get current user
+	userCmd := exec.Command("gh", "api", "user", "--jq", ".login")
+	userOutput, err := userCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current user: %w", err)
+	}
+	currentUser := strings.TrimSpace(string(userOutput))
+
+	// Get PRs for current user with full details
+	prCmd := exec.Command("gh", "pr", "list", "--repo", fmt.Sprintf("%s/%s", owner, repo), "--author", currentUser, "--json", "number,title,url")
+	prOutput, err := prCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PRs: %w", err)
+	}
+
+	var prs []PR
+	if err := json.Unmarshal(prOutput, &prs); err != nil {
+		return nil, fmt.Errorf("failed to parse PR data: %w", err)
+	}
+
+	return prs, nil
 }
 
 func calculateMinimalPaths(repos []GitRepo) []string {
