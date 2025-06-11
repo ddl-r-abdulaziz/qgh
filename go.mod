@@ -1,4 +1,4 @@
-module github.com/ddl-r-abdulaziz/gh
+module github.com/ddl-r-abdulaziz/qgh
 
 go 1.24.3
 

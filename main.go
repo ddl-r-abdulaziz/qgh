@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -21,6 +23,7 @@ type GitRepo struct {
 	Directory string
 	Origin    string
 	GitHubURL string
+	PRCount   int
 }
 
 type model struct {
@@ -210,24 +213,31 @@ func (m model) View() string {
 			Foreground(lipgloss.Color("0")).
 			Padding(0, 1).
 			Bold(true)
+			
+		prPillStyle := lipgloss.NewStyle().
+			Background(lipgloss.Color("5")).
+			Foreground(lipgloss.Color("0")).
+			Padding(0, 1).
+			Bold(true)
 		
 		for i, repo := range m.filteredRepos {
 			pathColumn := fmt.Sprintf("%-*s", maxPathLen, minPaths[i])
+			line := pathColumn
 			
 			if repo.GitHubURL != "N/A" && repo.GitHubURL != "Non-GitHub" {
 				githubPill := githubPillStyle.Render("github")
-				line := fmt.Sprintf("%s  %s", pathColumn, githubPill)
-				if i == m.cursor {
-					line = selectedStyle.Render(line)
-				}
-				b.WriteString(line)
-			} else {
-				line := pathColumn
-				if i == m.cursor {
-					line = selectedStyle.Render(line)
-				}
-				b.WriteString(line)
+				line = fmt.Sprintf("%s  %s", line, githubPill)
 			}
+			
+			if repo.PRCount > 0 {
+				prPill := prPillStyle.Render(fmt.Sprintf("PR[%d]", repo.PRCount))
+				line = fmt.Sprintf("%s  %s", line, prPill)
+			}
+			
+			if i == m.cursor {
+				line = selectedStyle.Render(line)
+			}
+			b.WriteString(line)
 			b.WriteString("\n")
 		}
 	}
@@ -321,11 +331,13 @@ func findGitRepositories(rootDir string, skipIgnore bool) ([]GitRepo, error) {
 			}
 
 			githubURL := convertToGitHubURL(origin)
+			prCount := getPRCount(githubURL)
 
 			repos = append(repos, GitRepo{
 				Directory: repoDir,
 				Origin:    origin,
 				GitHubURL: githubURL,
+				PRCount:   prCount,
 			})
 
 			return filepath.SkipDir
@@ -416,6 +428,44 @@ func convertToGitHubURL(origin string) string {
 	return "Non-GitHub"
 }
 
+func getPRCount(repoURL string) int {
+	if repoURL == "N/A" || repoURL == "Non-GitHub" {
+		return 0
+	}
+
+	// Extract owner/repo from GitHub URL
+	re := regexp.MustCompile(`https://github\.com/([^/]+)/([^/]+)`)
+	matches := re.FindStringSubmatch(repoURL)
+	if len(matches) != 3 {
+		return 0
+	}
+
+	owner := matches[1]
+	repo := matches[2]
+
+	// Get current user
+	userCmd := exec.Command("gh", "api", "user", "--jq", ".login")
+	userOutput, err := userCmd.Output()
+	if err != nil {
+		return 0
+	}
+	currentUser := strings.TrimSpace(string(userOutput))
+
+	// Get PR count for current user
+	prCmd := exec.Command("gh", "pr", "list", "--repo", fmt.Sprintf("%s/%s", owner, repo), "--author", currentUser, "--json", "number")
+	prOutput, err := prCmd.Output()
+	if err != nil {
+		return 0
+	}
+
+	var prs []map[string]interface{}
+	if err := json.Unmarshal(prOutput, &prs); err != nil {
+		return 0
+	}
+
+	return len(prs)
+}
+
 func calculateMinimalPaths(repos []GitRepo) []string {
 	if len(repos) == 0 {
 		return []string{}
@@ -486,8 +536,8 @@ func printRepositories(repos []GitRepo) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer w.Flush()
 
-	fmt.Fprintln(w, "DIRECTORY\tGITHUB")
-	fmt.Fprintln(w, "---------\t------")
+	fmt.Fprintln(w, "DIRECTORY\tGITHUB\tPRS")
+	fmt.Fprintln(w, "---------\t------\t---")
 
 	// Calculate minimal distinguishing paths
 	minPaths := calculateMinimalPaths(repos)
@@ -497,6 +547,12 @@ func printRepositories(repos []GitRepo) {
 		if repo.GitHubURL != "N/A" && repo.GitHubURL != "Non-GitHub" {
 			githubStatus = "Yes"
 		}
-		fmt.Fprintf(w, "%s\t%s\n", minPaths[i], githubStatus)
+		
+		prStatus := ""
+		if repo.PRCount > 0 {
+			prStatus = strconv.Itoa(repo.PRCount)
+		}
+		
+		fmt.Fprintf(w, "%s\t%s\t%s\n", minPaths[i], githubStatus, prStatus)
 	}
 }

@@ -1,6 +1,6 @@
 GO_SOURCES := $(wildcard *.go)
 BUILD_DIR := build
-TARGET := $(BUILD_DIR)/gh
+TARGET := $(BUILD_DIR)/qgh
 
 .PHONY: all clean install
 
