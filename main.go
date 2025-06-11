@@ -116,8 +116,8 @@ func printRepositories(repos []GitRepo) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer w.Flush()
 
-	fmt.Fprintln(w, "DIRECTORY\tORIGIN\tGITHUB URL")
-	fmt.Fprintln(w, "---------\t------\t----------")
+	fmt.Fprintln(w, "DIRECTORY\tGITHUB URL")
+	fmt.Fprintln(w, "---------\t----------")
 
 	for _, repo := range repos {
 		relativeDir, err := filepath.Rel(".", repo.Directory)
@@ -125,6 +125,6 @@ func printRepositories(repos []GitRepo) {
 			relativeDir = repo.Directory
 		}
 		
-		fmt.Fprintf(w, "%s\t%s\t%s\n", relativeDir, repo.Origin, repo.GitHubURL)
+		fmt.Fprintf(w, "%s\t%s\n", relativeDir, repo.GitHubURL)
 	}
 }

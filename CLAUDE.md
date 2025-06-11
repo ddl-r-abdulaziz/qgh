@@ -10,8 +10,9 @@ This is a Go project (`github.com/ddl-r-abdulaziz/gh`) using Go 1.24.3. The repo
 
 ### Development
 - `go run .` - Run the gh CLI application
-- `go build -o gh` - Build the gh executable
-- `./gh` - Run the built application to find git repositories
+- `make` - Build the gh executable to ./build/gh
+- `make clean` - Remove build directory
+- `./build/gh` - Run the built application to find git repositories
 - `go test ./...` - Run all tests
 - `go mod tidy` - Clean up module dependencies
 - `go fmt ./...` - Format all Go files
