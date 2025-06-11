@@ -112,6 +112,72 @@ func convertToGitHubURL(origin string) string {
 	return "Non-GitHub"
 }
 
+func calculateMinimalPaths(repos []GitRepo) []string {
+	if len(repos) == 0 {
+		return []string{}
+	}
+
+	// Convert all paths to relative and split into components
+	paths := make([][]string, len(repos))
+	for i, repo := range repos {
+		relPath, err := filepath.Rel(".", repo.Directory)
+		if err != nil {
+			relPath = repo.Directory
+		}
+		paths[i] = strings.Split(relPath, string(filepath.Separator))
+	}
+
+	// Find common prefix length
+	commonPrefixLen := findCommonPrefix(paths)
+
+	// Remove common prefix from all paths
+	result := make([]string, len(repos))
+	for i, path := range paths {
+		if commonPrefixLen >= len(path) {
+			// If common prefix is entire path, use the last component
+			result[i] = path[len(path)-1]
+		} else {
+			result[i] = strings.Join(path[commonPrefixLen:], string(filepath.Separator))
+		}
+	}
+
+	return result
+}
+
+func findCommonPrefix(paths [][]string) int {
+	if len(paths) == 0 {
+		return 0
+	}
+
+	// Find minimum path length
+	minLen := len(paths[0])
+	for _, path := range paths {
+		if len(path) < minLen {
+			minLen = len(path)
+		}
+	}
+
+	// Find common prefix length
+	commonLen := 0
+	for i := 0; i < minLen; i++ {
+		first := paths[0][i]
+		allMatch := true
+		for _, path := range paths[1:] {
+			if path[i] != first {
+				allMatch = false
+				break
+			}
+		}
+		if allMatch {
+			commonLen++
+		} else {
+			break
+		}
+	}
+
+	return commonLen
+}
+
 func printRepositories(repos []GitRepo) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer w.Flush()
@@ -119,12 +185,10 @@ func printRepositories(repos []GitRepo) {
 	fmt.Fprintln(w, "DIRECTORY\tGITHUB URL")
 	fmt.Fprintln(w, "---------\t----------")
 
-	for _, repo := range repos {
-		relativeDir, err := filepath.Rel(".", repo.Directory)
-		if err != nil {
-			relativeDir = repo.Directory
-		}
-		
-		fmt.Fprintf(w, "%s\t%s\n", relativeDir, repo.GitHubURL)
+	// Calculate minimal distinguishing paths
+	minPaths := calculateMinimalPaths(repos)
+
+	for i, repo := range repos {
+		fmt.Fprintf(w, "%s\t%s\n", minPaths[i], repo.GitHubURL)
 	}
 }
