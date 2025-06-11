@@ -157,6 +157,36 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.scrollOffset = m.cursor - visibleHeight + 1
 			}
 		}
+	case "pgup":
+		// Calculate visible area height for page jumps
+		visibleHeight := m.terminalHeight - 10
+		if visibleHeight < 1 {
+			visibleHeight = 1
+		}
+		// Jump up by a page
+		m.cursor -= visibleHeight
+		if m.cursor < 0 {
+			m.cursor = 0
+		}
+		// Update scroll offset to keep cursor visible
+		if m.cursor < m.scrollOffset {
+			m.scrollOffset = m.cursor
+		}
+	case "pgdown":
+		// Calculate visible area height for page jumps
+		visibleHeight := m.terminalHeight - 10
+		if visibleHeight < 1 {
+			visibleHeight = 1
+		}
+		// Jump down by a page
+		m.cursor += visibleHeight
+		if m.cursor >= len(m.filteredRepos) {
+			m.cursor = len(m.filteredRepos) - 1
+		}
+		// Update scroll offset to keep cursor visible
+		if m.cursor >= m.scrollOffset+visibleHeight {
+			m.scrollOffset = m.cursor - visibleHeight + 1
+		}
 	case "enter":
 		if len(m.filteredRepos) > 0 {
 			repo := m.filteredRepos[m.cursor]
@@ -225,6 +255,41 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.detailCursor >= m.detailScrollOffset+visibleHeight {
 				m.detailScrollOffset = m.detailCursor - visibleHeight + 1
 			}
+		}
+	case "pgup":
+		// Calculate visible area height for page jumps
+		visibleHeight := m.terminalHeight - 11
+		if visibleHeight < 1 {
+			visibleHeight = 1
+		}
+		// Jump up by a page
+		m.detailCursor -= visibleHeight
+		if m.detailCursor < 0 {
+			m.detailCursor = 0
+		}
+		// Update scroll offset to keep cursor visible
+		if m.detailCursor < m.detailScrollOffset {
+			m.detailScrollOffset = m.detailCursor
+		}
+	case "pgdown":
+		// Calculate visible area height for page jumps
+		visibleHeight := m.terminalHeight - 11
+		if visibleHeight < 1 {
+			visibleHeight = 1
+		}
+		// Calculate max items (URL field + PRs)
+		maxItems := 1 // URL field
+		if len(m.repoDetails) > 0 {
+			maxItems += len(m.repoDetails)
+		}
+		// Jump down by a page
+		m.detailCursor += visibleHeight
+		if m.detailCursor >= maxItems {
+			m.detailCursor = maxItems - 1
+		}
+		// Update scroll offset to keep cursor visible
+		if m.detailCursor >= m.detailScrollOffset+visibleHeight {
+			m.detailScrollOffset = m.detailCursor - visibleHeight + 1
 		}
 	case "enter":
 		if m.selectedRepo != nil {
@@ -433,7 +498,7 @@ func (m model) renderListView() string {
 	}
 	
 	b.WriteString("\n")
-	b.WriteString("Use ↑/↓ or j/k to navigate, Enter for details, c to cd and exit, q/Ctrl+C to quit")
+	b.WriteString("Use ↑/↓ or j/k to navigate, PgUp/PgDn for pages, Enter for details, c to cd and exit, q/Ctrl+C to quit")
 	
 	return b.String()
 }
@@ -547,7 +612,7 @@ func (m model) renderDetailView() string {
 	}
 	
 	b.WriteString("\n")
-	b.WriteString("Use ↑/↓ or j/k to navigate, Enter to open, c to cd and exit, Esc to go back, q/Ctrl+C to quit")
+	b.WriteString("Use ↑/↓ or j/k to navigate, PgUp/PgDn for pages, Enter to open, c to cd and exit, Esc to go back, q/Ctrl+C to quit")
 	
 	return b.String()
 }
