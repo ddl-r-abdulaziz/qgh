@@ -41,7 +41,15 @@ QGH is a CLI application that helps enumerate git repositories in subdirectories
 ## PR Mode
 
 When using the `--pr` flag, QGH switches to PR mode where:
-- The search box searches through your GitHub PRs (title and content)
+- The search box searches through your GitHub PRs with partial matching support
+- Searches match PR titles, repository names, and support mnemonic matching
 - Only local repositories that have matching GitHub repositories with your PRs are shown
+- Search requests are debounced by 2 seconds to prevent excessive API calls
 - The UI indicates "PR Mode" in the header and shows "PR Search:" in the search box
 - All other interactions remain the same (navigation, details, cd functionality)
+
+### PR Search Features:
+- **Partial matching**: Search for "bug" to find PRs with titles like "Fix bug in authentication"
+- **Repository matching**: Search for "frontend" to find PRs in repositories containing "frontend"
+- **Mnemonic matching**: Search for "fb" to match "Fix Bug" or "Frontend Backend"
+- **Debounced search**: 2-second delay prevents excessive GitHub API calls while typing

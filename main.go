@@ -105,6 +105,10 @@ func (m model) Init() tea.Cmd {
 	if m.currentView == detailView && m.selectedRepo != nil && m.loadingPRs {
 		return loadPRsCmd(m.selectedRepo.GitHubURL)
 	}
+	// Handle initial search in PR mode
+	if m.prMode && m.searchInput != "" && m.prSearchPending {
+		return debounceCmd(m.searchInput)
+	}
 	return nil
 }
 
@@ -817,11 +821,16 @@ func main() {
 		// Apply initial filter if search term provided
 		if initialSearch != "" {
 			if *prMode {
-				// In PR mode, start with debounce
-				// Don't filter immediately, let the debounce handle it
+				// In PR mode, start with debounce for initial search
+				m.prSearchPending = true
+				// Clear the filtered repos so we show "Waiting for PR search..." instead of all repos
+				m.filteredRepos = []GitRepo{}
 			} else {
 				m.filterRepos()
 			}
+		} else if *prMode {
+			// In PR mode without initial search, start with empty search (show all repos)
+			m.filteredRepos = repos
 		}
 		
 		p := tea.NewProgram(m, tea.WithAltScreen())
@@ -1120,12 +1129,13 @@ func searchUserPRs(searchText string) ([]PR, error) {
 	}
 	currentUser := strings.TrimSpace(string(userOutput))
 
-	// Search PRs across all repositories using GitHub CLI
-	// Use gh search to find PRs by the current user that match the search text
+	// Get all PRs by the current user (without specific search term to get broader results)
+	// This allows us to do client-side partial matching
 	searchCmd := exec.Command("gh", "search", "prs", 
-		"--author", currentUser, 
+		"--author", currentUser,
+		"--state", "open", 
 		"--json", "number,title,url,repository",
-		searchText)
+		"--limit", "100") // Get up to 100 recent PRs
 	
 	searchOutput, err := searchCmd.Output()
 	if err != nil {
@@ -1149,15 +1159,28 @@ func searchUserPRs(searchText string) ([]PR, error) {
 		return nil, fmt.Errorf("failed to parse PR search results: %w", err)
 	}
 
-	// Convert to PR format with repository information
+	// Filter results client-side for partial matching
+	searchLower := strings.ToLower(searchText)
 	var prs []PR
+	
 	for _, result := range searchResults {
-		pr := PR{
-			Number: result.Number,
-			Title:  fmt.Sprintf("[%s/%s] %s", result.Repository.Owner.Login, result.Repository.Name, result.Title),
-			URL:    result.URL,
+		titleLower := strings.ToLower(result.Title)
+		repoName := fmt.Sprintf("%s/%s", result.Repository.Owner.Login, result.Repository.Name)
+		repoLower := strings.ToLower(repoName)
+		
+		// Check if search text matches PR title, repository name, or both
+		if strings.Contains(titleLower, searchLower) || 
+		   strings.Contains(repoLower, searchLower) ||
+		   matchesMnemonic(titleLower, searchLower) ||
+		   matchesMnemonic(repoLower, searchLower) {
+			
+			pr := PR{
+				Number: result.Number,
+				Title:  fmt.Sprintf("[%s] %s", repoName, result.Title),
+				URL:    result.URL,
+			}
+			prs = append(prs, pr)
 		}
-		prs = append(prs, pr)
 	}
 
 	return prs, nil
