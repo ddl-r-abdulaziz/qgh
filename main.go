@@ -386,10 +386,8 @@ func (m model) renderListView() string {
 			}
 		}
 		
-		githubPillStyle := lipgloss.NewStyle().
-			Background(lipgloss.Color("2")).
-			Foreground(lipgloss.Color("0")).
-			Padding(0, 1).
+		githubCheckStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("2")).
 			Bold(true)
 		
 		// Calculate visible area height (terminal height minus header, search, footer)
@@ -417,8 +415,8 @@ func (m model) renderListView() string {
 			line := pathColumn
 			
 			if repo.GitHubURL != "N/A" && repo.GitHubURL != "Non-GitHub" {
-				githubPill := githubPillStyle.Render("github")
-				line = fmt.Sprintf("%s  %s", line, githubPill)
+				githubCheck := githubCheckStyle.Render("✓")
+				line = fmt.Sprintf("%s  %s", line, githubCheck)
 			}
 			
 			if i == m.cursor {
