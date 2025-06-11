@@ -34,19 +34,31 @@ QGH is a CLI application that helps enumerate git repositories in subdirectories
 - **convertToGitHubURL()**: Converts various git remote formats to GitHub URLs
 - **getPRCount()**: Uses GitHub CLI to get open PR count by current user
 - **searchUserPRs()**: Searches through user's GitHub PRs using GitHub CLI (PR mode)
-- **Interactive UI**: Bubble Tea-based terminal UI with search and navigation (↑/↓ arrows, PgUp/PgDn, Enter, Ctrl+D for cd)
+- **Interactive UI**: Bubble Tea-based terminal UI with search and navigation (↑/↓ arrows, PgUp/PgDn, Enter, Ctrl+D for cd, Ctrl+P to switch modes)
 - **PR Mode**: Special mode that searches through user's GitHub PRs and shows matching local repositories
 - **printRepositories()**: Formats output in a tabular format using tabwriter for non-interactive mode
 
 ## PR Mode
 
-When using the `--pr` flag, QGH switches to PR mode where:
+QGH supports two search modes that you can switch between dynamically:
+
+**Local Mode (default):**
+- Searches through local repository names and paths
+- Immediate filtering without API calls
+- Use `Ctrl+P` to switch to PR mode
+
+**PR Mode:**
 - The search box searches through your GitHub PRs with partial matching support
 - Searches match PR titles, repository names, and support mnemonic matching
 - Only local repositories that have matching GitHub repositories with your PRs are shown
 - Search requests are debounced by 2 seconds to prevent excessive API calls
 - The UI indicates "PR Mode" in the header and shows "PR Search:" in the search box
-- All other interactions remain the same (navigation, details, cd functionality)
+- Use `Esc` twice (clear search, then exit mode) to return to Local mode
+
+**Mode Switching:**
+- Start in PR mode: `./build/qgh --pr`
+- Switch to PR mode: Press `Ctrl+P` (clears current search)
+- Exit PR mode: Press `Esc` to clear search, then `Esc` again to exit PR mode
 
 ### PR Search Features:
 - **Partial matching**: Search for "bug" to find PRs with titles like "Fix bug in authentication"

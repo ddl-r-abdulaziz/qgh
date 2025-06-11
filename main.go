@@ -164,6 +164,13 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			repo := m.filteredRepos[m.cursor]
 			return m, changeDirCmd(repo.Directory)
 		}
+	case "ctrl+p":
+		// Switch to PR mode and clear search
+		m.prMode = true
+		m.searchInput = ""
+		m.prSearchPending = false
+		m.filterRepos()
+		return m, nil
 	case "up":
 		if m.cursor > 0 {
 			m.cursor--
@@ -233,9 +240,16 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.searchInput) > 0 {
 			// Clear search if there's text
 			m.searchInput = ""
+			m.prSearchPending = false
 			return m.handleSearchChange()
+		} else if m.prMode {
+			// Exit PR mode if search is already empty
+			m.prMode = false
+			m.prSearchPending = false
+			m.filterRepos()
+			return m, nil
 		} else {
-			// Quit if search is already empty
+			// Quit if search is already empty and in local mode
 			return m, tea.Quit
 		}
 	case "backspace":
@@ -260,9 +274,27 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedRepo != nil {
 			return m, changeDirCmd(m.selectedRepo.Directory)
 		}
+	case "ctrl+p":
+		// Switch to PR mode, clear search, and go back to list view
+		m.prMode = true
+		m.searchInput = ""
+		m.prSearchPending = false
+		m.currentView = listView
+		m.selectedRepo = nil
+		m.repoDetails = nil
+		m.detailCursor = 0
+		m.detailScrollOffset = 0
+		m.filterRepos()
+		return m, nil
 	case "esc":
 		if m.startedInDetailView {
-			return m, tea.Quit
+			if m.prMode {
+				// Exit PR mode if in single repo detail view
+				m.prMode = false
+				m.prSearchPending = false
+			} else {
+				return m, tea.Quit
+			}
 		}
 		m.currentView = listView
 		m.selectedRepo = nil
@@ -662,9 +694,9 @@ func (m model) renderListView() string {
 	
 	b.WriteString("\n")
 	if m.prMode {
-		b.WriteString("PR Mode: Search your GitHub PRs, repos shown match PR repositories. Use ↑/↓ to navigate, PgUp/PgDn for pages, Enter for details, Ctrl+D to cd and exit, Esc to clear search/quit, Ctrl+C to quit")
+		b.WriteString("PR Mode: Search your GitHub PRs, repos shown match PR repositories. Use ↑/↓ to navigate, PgUp/PgDn for pages, Enter for details, Ctrl+D to cd and exit, Esc to clear search/exit PR mode, Ctrl+C to quit")
 	} else {
-		b.WriteString("Use ↑/↓ to navigate, PgUp/PgDn for pages, Enter for details, Ctrl+D to cd and exit, Esc to clear search/quit, Ctrl+C to quit")
+		b.WriteString("Use ↑/↓ to navigate, PgUp/PgDn for pages, Enter for details, Ctrl+D to cd and exit, Ctrl+P for PR mode, Esc to clear search/quit, Ctrl+C to quit")
 	}
 	
 	return b.String()
@@ -780,7 +812,11 @@ func (m model) renderDetailView() string {
 	}
 	
 	b.WriteString("\n")
-	b.WriteString("Use ↑/↓ to navigate, PgUp/PgDn for pages, Enter to open, Ctrl+D to cd and exit, Esc to go back, Ctrl+C to quit")
+	if m.prMode {
+		b.WriteString("Use ↑/↓ to navigate, PgUp/PgDn for pages, Enter to open, Ctrl+D to cd and exit, Esc to go back/exit PR mode, Ctrl+C to quit")
+	} else {
+		b.WriteString("Use ↑/↓ to navigate, PgUp/PgDn for pages, Enter to open, Ctrl+D to cd and exit, Ctrl+P for PR mode, Esc to go back, Ctrl+C to quit")
+	}
 	
 	return b.String()
 }
