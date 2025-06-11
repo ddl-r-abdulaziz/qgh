@@ -439,9 +439,28 @@ func convertToGitHubURL(origin string) string {
 	return "Non-GitHub"
 }
 
+var ghAuthWarningShown = false
+
+func checkGitHubAuth() bool {
+	cmd := exec.Command("gh", "auth", "status")
+	err := cmd.Run()
+	return err == nil
+}
+
 func getPRCount(repoURL string) int {
 	if repoURL == "N/A" || repoURL == "Non-GitHub" {
 		return 0
+	}
+
+	// Check GitHub CLI authentication once
+	if !ghAuthWarningShown {
+		if !checkGitHubAuth() {
+			fmt.Fprintf(os.Stderr, "Warning: GitHub CLI not authenticated. PR counts will be unavailable.\n")
+			fmt.Fprintf(os.Stderr, "Run 'gh auth login' to enable PR count features.\n\n")
+			ghAuthWarningShown = true
+			return 0
+		}
+		ghAuthWarningShown = true
 	}
 
 	// Extract owner/repo from GitHub URL
