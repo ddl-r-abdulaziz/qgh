@@ -56,6 +56,11 @@ type model struct {
 	
 	// Navigation state
 	startedInDetailView bool // True if we opened directly in detail view
+	
+	// Terminal/scrolling state
+	terminalHeight int
+	scrollOffset   int
+	detailScrollOffset int
 }
 
 type prLoadedMsg struct {
@@ -89,6 +94,10 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.terminalHeight = msg.Height
+		return m, nil
+		
 	case prLoadedMsg:
 		m.loadingPRs = false
 		if msg.err != nil {
@@ -129,10 +138,23 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if m.cursor > 0 {
 			m.cursor--
+			// Scroll up if cursor goes above visible area
+			if m.cursor < m.scrollOffset {
+				m.scrollOffset = m.cursor
+			}
 		}
 	case "down", "j":
 		if m.cursor < len(m.filteredRepos)-1 {
 			m.cursor++
+			// Calculate visible area height (terminal height minus header, search, footer)
+			visibleHeight := m.terminalHeight - 6 // Account for header, search box, and footer
+			if visibleHeight < 1 {
+				visibleHeight = 1
+			}
+			// Scroll down if cursor goes below visible area
+			if m.cursor >= m.scrollOffset+visibleHeight {
+				m.scrollOffset = m.cursor - visibleHeight + 1
+			}
 		}
 	case "enter":
 		if len(m.filteredRepos) > 0 {
@@ -140,6 +162,7 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.selectedRepo = &repo
 			m.currentView = detailView
 			m.detailCursor = 0
+			m.detailScrollOffset = 0
 			m.repoDetails = nil
 			m.loadingPRs = true
 			m.prLoadError = ""
@@ -175,9 +198,14 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectedRepo = nil
 		m.repoDetails = nil
 		m.detailCursor = 0
+		m.detailScrollOffset = 0
 	case "up", "k":
 		if m.detailCursor > 0 {
 			m.detailCursor--
+			// Scroll up if cursor goes above visible area
+			if m.detailCursor < m.detailScrollOffset {
+				m.detailScrollOffset = m.detailCursor
+			}
 		}
 	case "down", "j":
 		maxItems := 1 // URL field
@@ -186,6 +214,15 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.detailCursor < maxItems-1 {
 			m.detailCursor++
+			// Calculate visible area height for detail view
+			visibleHeight := m.terminalHeight - 8 // Account for header, name, url, footer
+			if visibleHeight < 1 {
+				visibleHeight = 1
+			}
+			// Scroll down if cursor goes below visible area
+			if m.detailCursor >= m.detailScrollOffset+visibleHeight {
+				m.detailScrollOffset = m.detailCursor - visibleHeight + 1
+			}
 		}
 	case "enter":
 		if m.selectedRepo != nil {
@@ -207,31 +244,32 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *model) filterRepos() {
 	if m.searchInput == "" {
 		m.filteredRepos = m.repos
-		return
-	}
-	
-	var filtered []GitRepo
-	searchLower := strings.ToLower(m.searchInput)
-	
-	for _, repo := range m.repos {
-		dirLower := strings.ToLower(repo.Directory)
-		urlLower := strings.ToLower(repo.GitHubURL)
+	} else {
+		var filtered []GitRepo
+		searchLower := strings.ToLower(m.searchInput)
 		
-		if strings.Contains(dirLower, searchLower) ||
-		   strings.Contains(urlLower, searchLower) ||
-		   matchesMnemonic(dirLower, searchLower) ||
-		   matchesMnemonic(urlLower, searchLower) {
-			filtered = append(filtered, repo)
+		for _, repo := range m.repos {
+			dirLower := strings.ToLower(repo.Directory)
+			urlLower := strings.ToLower(repo.GitHubURL)
+			
+			if strings.Contains(dirLower, searchLower) ||
+			   strings.Contains(urlLower, searchLower) ||
+			   matchesMnemonic(dirLower, searchLower) ||
+			   matchesMnemonic(urlLower, searchLower) {
+				filtered = append(filtered, repo)
+			}
 		}
+		m.filteredRepos = filtered
 	}
-	m.filteredRepos = filtered
 	
+	// Reset cursor and scroll position
 	if m.cursor >= len(m.filteredRepos) {
 		m.cursor = len(m.filteredRepos) - 1
 	}
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
+	m.scrollOffset = 0
 }
 
 func matchesMnemonic(text, query string) bool {
@@ -352,7 +390,26 @@ func (m model) renderListView() string {
 			Padding(0, 1).
 			Bold(true)
 		
-		for i, repo := range m.filteredRepos {
+		// Calculate visible area height (terminal height minus header, search, footer)
+		visibleHeight := m.terminalHeight - 6 // Account for header, search box, and footer
+		if visibleHeight < 1 {
+			visibleHeight = 1
+		}
+		
+		// Calculate the range of items to display
+		startIdx := m.scrollOffset
+		endIdx := m.scrollOffset + visibleHeight
+		if endIdx > len(m.filteredRepos) {
+			endIdx = len(m.filteredRepos)
+		}
+		
+		// Show scroll indicators if needed
+		if m.scrollOffset > 0 {
+			b.WriteString("↑ (more above)\n")
+		}
+		
+		for i := startIdx; i < endIdx; i++ {
+			repo := m.filteredRepos[i]
 			pathColumn := fmt.Sprintf("%-*s", maxPathLen, minPaths[i])
 			line := pathColumn
 			
@@ -366,6 +423,11 @@ func (m model) renderListView() string {
 			}
 			b.WriteString(line)
 			b.WriteString("\n")
+		}
+		
+		// Show scroll indicator if there are more items below
+		if endIdx < len(m.filteredRepos) {
+			b.WriteString("↓ (more below)\n")
 		}
 	}
 	
@@ -428,13 +490,57 @@ func (m model) renderDetailView() string {
 		b.WriteString("No open PRs by current user")
 		b.WriteString("\n")
 	} else {
-		for i, pr := range m.repoDetails {
+		// Calculate visible area height for PR list
+		visibleHeight := m.terminalHeight - 8 // Account for header, name, url, footer
+		if visibleHeight < 1 {
+			visibleHeight = 1
+		}
+		
+		// Calculate total items (URL field + PRs)
+		totalItems := 1 + len(m.repoDetails)
+		
+		// Calculate which PRs to show (accounting for URL field at index 0)
+		startPRIdx := 0
+		endPRIdx := len(m.repoDetails)
+		
+		if totalItems > visibleHeight {
+			// Determine the visible range considering the cursor position
+			if m.detailScrollOffset > 0 {
+				// If we're scrolled past the URL field, show "more above" indicator
+				b.WriteString("↑ (more above)\n")
+			}
+			
+			// Calculate PR range to display
+			prStartOffset := m.detailScrollOffset - 1 // Subtract 1 for URL field
+			if prStartOffset < 0 {
+				prStartOffset = 0
+			}
+			
+			prVisibleCount := visibleHeight
+			if m.detailScrollOffset == 0 {
+				prVisibleCount-- // Account for URL field being visible
+			}
+			
+			startPRIdx = prStartOffset
+			endPRIdx = prStartOffset + prVisibleCount
+			if endPRIdx > len(m.repoDetails) {
+				endPRIdx = len(m.repoDetails)
+			}
+		}
+		
+		for i := startPRIdx; i < endPRIdx; i++ {
+			pr := m.repoDetails[i]
 			prLine := fmt.Sprintf("#%d: %s", pr.Number, pr.Title)
 			if m.detailCursor == i+1 {
 				prLine = selectedStyle.Render(prLine)
 			}
 			b.WriteString(prLine)
 			b.WriteString("\n")
+		}
+		
+		// Show "more below" indicator if needed
+		if endPRIdx < len(m.repoDetails) {
+			b.WriteString("↓ (more below)\n")
 		}
 	}
 	
@@ -483,6 +589,7 @@ func main() {
 				loadingPRs:    true,
 				prLoadError:   "",
 				startedInDetailView: true,
+				terminalHeight: 24, // Default height, will be updated by WindowSizeMsg
 			}
 			
 			p := tea.NewProgram(m, tea.WithAltScreen())
@@ -512,6 +619,7 @@ func main() {
 			loadingPRs:    false,
 			prLoadError:   "",
 			startedInDetailView: false,
+			terminalHeight: 24, // Default height, will be updated by WindowSizeMsg
 		}
 		
 		// Apply initial filter if search term provided
