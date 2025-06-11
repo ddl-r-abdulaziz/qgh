@@ -199,6 +199,15 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.prLoadError = ""
 			return m, loadPRsCmd(repo.GitHubURL)
 		}
+	case "esc":
+		if len(m.searchInput) > 0 {
+			// Clear search if there's text
+			m.searchInput = ""
+			m.filterRepos()
+		} else {
+			// Quit if search is already empty
+			return m, tea.Quit
+		}
 	case "backspace":
 		if len(m.searchInput) > 0 {
 			m.searchInput = m.searchInput[:len(m.searchInput)-1]
@@ -498,7 +507,7 @@ func (m model) renderListView() string {
 	}
 	
 	b.WriteString("\n")
-	b.WriteString("Use ↑/↓ or j/k to navigate, PgUp/PgDn for pages, Enter for details, c to cd and exit, q/Ctrl+C to quit")
+	b.WriteString("Use ↑/↓ or j/k to navigate, PgUp/PgDn for pages, Enter for details, c to cd and exit, Esc to clear search/quit, q/Ctrl+C to quit")
 	
 	return b.String()
 }
