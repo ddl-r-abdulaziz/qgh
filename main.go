@@ -146,9 +146,10 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		if m.cursor < len(m.filteredRepos)-1 {
 			m.cursor++
-			// Calculate visible area height (terminal height minus header, search, footer)
+			// Calculate visible area height (terminal height minus header, search, footer, potential scroll indicators)
 			// Header(1) + 2 newlines(2) + search box with border(3) + 2 newlines(2) + newline before footer(1) + footer(1) = 10 lines
-			visibleHeight := m.terminalHeight - 10
+			// Reserve 2 more lines for potential scroll indicators
+			visibleHeight := m.terminalHeight - 10 - 2
 			if visibleHeight < 1 {
 				visibleHeight = 1
 			}
@@ -158,8 +159,8 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "pgup":
-		// Calculate visible area height for page jumps
-		visibleHeight := m.terminalHeight - 10
+		// Calculate visible area height for page jumps (reserve space for scroll indicators)
+		visibleHeight := m.terminalHeight - 10 - 2
 		if visibleHeight < 1 {
 			visibleHeight = 1
 		}
@@ -173,8 +174,8 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.scrollOffset = m.cursor
 		}
 	case "pgdown":
-		// Calculate visible area height for page jumps
-		visibleHeight := m.terminalHeight - 10
+		// Calculate visible area height for page jumps (reserve space for scroll indicators)
+		visibleHeight := m.terminalHeight - 10 - 2
 		if visibleHeight < 1 {
 			visibleHeight = 1
 		}
@@ -254,9 +255,10 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.detailCursor < maxItems-1 {
 			m.detailCursor++
-			// Calculate visible area height for detail view
+			// Calculate visible area height for detail view (reserve space for scroll indicators)
 			// Header(1) + 2 newlines(2) + Name(1) + 2 newlines(2) + URL(1) + 2 newlines(2) + "Pull Requests:"(1) + newline before footer(1) + footer(1) = 11 lines
-			visibleHeight := m.terminalHeight - 11
+			// Reserve 2 more lines for potential scroll indicators
+			visibleHeight := m.terminalHeight - 11 - 2
 			if visibleHeight < 1 {
 				visibleHeight = 1
 			}
@@ -266,8 +268,8 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "pgup":
-		// Calculate visible area height for page jumps
-		visibleHeight := m.terminalHeight - 11
+		// Calculate visible area height for page jumps (reserve space for scroll indicators)
+		visibleHeight := m.terminalHeight - 11 - 2
 		if visibleHeight < 1 {
 			visibleHeight = 1
 		}
@@ -281,8 +283,8 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailScrollOffset = m.detailCursor
 		}
 	case "pgdown":
-		// Calculate visible area height for page jumps
-		visibleHeight := m.terminalHeight - 11
+		// Calculate visible area height for page jumps (reserve space for scroll indicators)
+		visibleHeight := m.terminalHeight - 11 - 2
 		if visibleHeight < 1 {
 			visibleHeight = 1
 		}
@@ -464,12 +466,19 @@ func (m model) renderListView() string {
 			Foreground(lipgloss.Color("2")).
 			Bold(true)
 		
-		// Calculate visible area height (terminal height minus header, search, footer)
+		// Calculate visible area height (terminal height minus header, search, footer, scroll indicators)
 		// Header(1) + 2 newlines(2) + search box with border(3) + 2 newlines(2) + newline before footer(1) + footer(1) = 10 lines
-		visibleHeight := m.terminalHeight - 10
+		// Always reserve 2 lines for scroll indicators (filled with empty lines if not needed)
+		baseOverhead := 10
+		scrollIndicatorLines := 2 // Always reserve 2 lines for consistent spacing
+		visibleHeight := m.terminalHeight - baseOverhead - scrollIndicatorLines
 		if visibleHeight < 1 {
 			visibleHeight = 1
 		}
+		
+		// Determine which scroll indicators we need
+		showMoreAbove := m.scrollOffset > 0
+		showMoreBelow := m.scrollOffset + visibleHeight < len(m.filteredRepos)
 		
 		// Calculate the range of items to display
 		startIdx := m.scrollOffset
@@ -478,9 +487,11 @@ func (m model) renderListView() string {
 			endIdx = len(m.filteredRepos)
 		}
 		
-		// Show scroll indicators if needed
-		if m.scrollOffset > 0 {
+		// Always show exactly 2 lines for scroll indicators (use empty lines as padding)
+		if showMoreAbove {
 			b.WriteString("↑ (more above)\n")
+		} else {
+			b.WriteString("\n") // Empty line for consistent spacing
 		}
 		
 		for i := startIdx; i < endIdx; i++ {
@@ -500,9 +511,11 @@ func (m model) renderListView() string {
 			b.WriteString("\n")
 		}
 		
-		// Show scroll indicator if there are more items below
-		if endIdx < len(m.filteredRepos) {
+		// Always show exactly 1 line for bottom scroll indicator (use empty line as padding)
+		if showMoreBelow {
 			b.WriteString("↓ (more below)\n")
+		} else {
+			b.WriteString("\n") // Empty line for consistent spacing
 		}
 	}
 	
@@ -565,9 +578,10 @@ func (m model) renderDetailView() string {
 		b.WriteString("No open PRs by current user")
 		b.WriteString("\n")
 	} else {
-		// Calculate visible area height for PR list
+		// Calculate visible area height for PR list (reserve space for scroll indicators)
 		// Header(1) + 2 newlines(2) + Name(1) + 2 newlines(2) + URL(1) + 2 newlines(2) + "Pull Requests:"(1) + newline before footer(1) + footer(1) = 11 lines
-		visibleHeight := m.terminalHeight - 11
+		// Reserve 2 more lines for potential scroll indicators
+		visibleHeight := m.terminalHeight - 11 - 2
 		if visibleHeight < 1 {
 			visibleHeight = 1
 		}
