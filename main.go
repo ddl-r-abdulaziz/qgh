@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -61,6 +62,11 @@ type model struct {
 	terminalHeight int
 	scrollOffset   int
 	detailScrollOffset int
+	
+	// PR mode state
+	prMode bool // True if in PR search mode
+	debounceTimer *time.Timer // Timer for debouncing PR search
+	prSearchPending bool // True when PR search is pending due to debounce
 }
 
 type prLoadedMsg struct {
@@ -70,6 +76,10 @@ type prLoadedMsg struct {
 
 type changeDirMsg struct {
 	path string
+}
+
+type debounceMsg struct {
+	searchText string
 }
 
 func loadPRsCmd(repoURL string) tea.Cmd {
@@ -83,6 +93,12 @@ func changeDirCmd(path string) tea.Cmd {
 	return func() tea.Msg {
 		return changeDirMsg{path: path}
 	}
+}
+
+func debounceCmd(searchText string) tea.Cmd {
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+		return debounceMsg{searchText: searchText}
+	})
 }
 
 func (m model) Init() tea.Cmd {
@@ -115,6 +131,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			fmt.Fprintf(os.Stderr, "Error writing cd path: %v\n", err)
 		}
 		return m, tea.Quit
+		
+	case debounceMsg:
+		// Only trigger search if the search text hasn't changed since debounce started
+		if m.prMode && msg.searchText == m.searchInput {
+			m.prSearchPending = false
+			m.filterRepos()
+		}
+		return m, nil
 		
 	case tea.KeyMsg:
 		if m.currentView == listView {
@@ -204,7 +228,7 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.searchInput) > 0 {
 			// Clear search if there's text
 			m.searchInput = ""
-			m.filterRepos()
+			return m.handleSearchChange()
 		} else {
 			// Quit if search is already empty
 			return m, tea.Quit
@@ -212,12 +236,12 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "backspace":
 		if len(m.searchInput) > 0 {
 			m.searchInput = m.searchInput[:len(m.searchInput)-1]
-			m.filterRepos()
+			return m.handleSearchChange()
 		}
 	default:
 		if len(msg.String()) == 1 && msg.String() != "c" {
 			m.searchInput += msg.String()
-			m.filterRepos()
+			return m.handleSearchChange()
 		}
 	}
 	return m, nil
@@ -319,10 +343,27 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) handleSearchChange() (tea.Model, tea.Cmd) {
+	if m.prMode && m.searchInput != "" {
+		// In PR mode with search text, start debounce timer
+		m.prSearchPending = true
+		return m, debounceCmd(m.searchInput)
+	} else {
+		// Normal mode or empty search in PR mode, filter immediately
+		m.prSearchPending = false
+		m.filterRepos()
+		return m, nil
+	}
+}
+
 func (m *model) filterRepos() {
 	if m.searchInput == "" {
 		m.filteredRepos = m.repos
+	} else if m.prMode {
+		// In PR mode, search for PRs and filter repos that match
+		m.filterReposByPRs()
 	} else {
+		// Normal mode: filter by repository directory and URL
 		var filtered []GitRepo
 		searchLower := strings.ToLower(m.searchInput)
 		
@@ -348,6 +389,43 @@ func (m *model) filterRepos() {
 		m.cursor = 0
 	}
 	m.scrollOffset = 0
+}
+
+func (m *model) filterReposByPRs() {
+	// Search for PRs matching the search text
+	prs, err := searchUserPRs(m.searchInput)
+	if err != nil {
+		// If search fails, show no repos
+		m.filteredRepos = []GitRepo{}
+		return
+	}
+	
+	// Extract repository URLs from PRs
+	prRepoURLs := make(map[string]bool)
+	for _, pr := range prs {
+		// Extract repository URL from PR URL
+		// PR URL format: https://github.com/owner/repo/pull/123
+		if strings.Contains(pr.URL, "github.com") {
+			// Remove /pull/123 part to get repository URL
+			parts := strings.Split(pr.URL, "/pull/")
+			if len(parts) > 0 {
+				repoURL := parts[0]
+				prRepoURLs[repoURL] = true
+			}
+		}
+	}
+	
+	// Filter local repositories that match PR repositories
+	var filtered []GitRepo
+	for _, repo := range m.repos {
+		if repo.GitHubURL != "N/A" && repo.GitHubURL != "Non-GitHub" {
+			if prRepoURLs[repo.GitHubURL] {
+				filtered = append(filtered, repo)
+			}
+		}
+	}
+	
+	m.filteredRepos = filtered
 }
 
 func matchesMnemonic(text, query string) bool {
@@ -442,15 +520,32 @@ func (m model) renderListView() string {
 		Background(lipgloss.Color("62")).
 		Foreground(lipgloss.Color("230"))
 	
-	b.WriteString(headerStyle.Render("Git Repository Explorer"))
+	if m.prMode {
+		b.WriteString(headerStyle.Render("Git Repository Explorer - PR Mode"))
+	} else {
+		b.WriteString(headerStyle.Render("Git Repository Explorer"))
+	}
 	b.WriteString("\n\n")
 	
-	searchBox := fmt.Sprintf("Search: %s", m.searchInput)
+	var searchBox string
+	if m.prMode {
+		if m.prSearchPending {
+			searchBox = fmt.Sprintf("PR Search: %s (searching...)", m.searchInput)
+		} else {
+			searchBox = fmt.Sprintf("PR Search: %s", m.searchInput)
+		}
+	} else {
+		searchBox = fmt.Sprintf("Search: %s", m.searchInput)
+	}
 	b.WriteString(searchStyle.Render(searchBox))
 	b.WriteString("\n\n")
 	
 	if len(m.filteredRepos) == 0 {
-		b.WriteString("No repositories found matching your search.\n")
+		if m.prMode && m.prSearchPending {
+			b.WriteString("Waiting for PR search...\n")
+		} else {
+			b.WriteString("No repositories found matching your search.\n")
+		}
 	} else {
 		minPaths := calculateMinimalPaths(m.filteredRepos)
 		
@@ -520,7 +615,11 @@ func (m model) renderListView() string {
 	}
 	
 	b.WriteString("\n")
-	b.WriteString("Use ↑/↓ or j/k to navigate, PgUp/PgDn for pages, Enter for details, c to cd and exit, Esc to clear search/quit, Ctrl+C to quit")
+	if m.prMode {
+		b.WriteString("PR Mode: Search your GitHub PRs, repos shown match PR repositories. Use ↑/↓ or j/k to navigate, PgUp/PgDn for pages, Enter for details, c to cd and exit, Esc to clear search/quit, Ctrl+C to quit")
+	} else {
+		b.WriteString("Use ↑/↓ or j/k to navigate, PgUp/PgDn for pages, Enter for details, c to cd and exit, Esc to clear search/quit, Ctrl+C to quit")
+	}
 	
 	return b.String()
 }
@@ -642,6 +741,7 @@ func (m model) renderDetailView() string {
 
 func main() {
 	skipIgnore := flag.Bool("skip-ignore", false, "Skip .gitignore files and traverse all directories")
+	prMode := flag.Bool("pr", false, "PR search mode: search through user's PRs and show matching repositories")
 	flag.Parse()
 
 	// Get optional search term from positional arguments
@@ -680,6 +780,7 @@ func main() {
 				prLoadError:   "",
 				startedInDetailView: true,
 				terminalHeight: 24, // Default height, will be updated by WindowSizeMsg
+				prMode:        *prMode,
 			}
 			
 			p := tea.NewProgram(m, tea.WithAltScreen())
@@ -710,11 +811,17 @@ func main() {
 			prLoadError:   "",
 			startedInDetailView: false,
 			terminalHeight: 24, // Default height, will be updated by WindowSizeMsg
+			prMode:        *prMode,
 		}
 		
 		// Apply initial filter if search term provided
 		if initialSearch != "" {
-			m.filterRepos()
+			if *prMode {
+				// In PR mode, start with debounce
+				// Don't filter immediately, let the debounce handle it
+			} else {
+				m.filterRepos()
+			}
 		}
 		
 		p := tea.NewProgram(m, tea.WithAltScreen())
@@ -990,6 +1097,67 @@ func getRepositoryPRs(repoURL string) ([]PR, error) {
 	var prs []PR
 	if err := json.Unmarshal(prOutput, &prs); err != nil {
 		return nil, fmt.Errorf("failed to parse PR data: %w", err)
+	}
+
+	return prs, nil
+}
+
+func searchUserPRs(searchText string) ([]PR, error) {
+	if searchText == "" {
+		return []PR{}, nil
+	}
+	
+	// Check GitHub CLI authentication
+	if !checkGitHubAuth() {
+		return nil, fmt.Errorf("GitHub CLI not authenticated")
+	}
+
+	// Get current user
+	userCmd := exec.Command("gh", "api", "user", "--jq", ".login")
+	userOutput, err := userCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current user: %w", err)
+	}
+	currentUser := strings.TrimSpace(string(userOutput))
+
+	// Search PRs across all repositories using GitHub CLI
+	// Use gh search to find PRs by the current user that match the search text
+	searchCmd := exec.Command("gh", "search", "prs", 
+		"--author", currentUser, 
+		"--json", "number,title,url,repository",
+		searchText)
+	
+	searchOutput, err := searchCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to search PRs: %w", err)
+	}
+
+	// Parse the search results
+	var searchResults []struct {
+		Number     int    `json:"number"`
+		Title      string `json:"title"`
+		URL        string `json:"url"`
+		Repository struct {
+			Name     string `json:"name"`
+			Owner    struct {
+				Login string `json:"login"`
+			} `json:"owner"`
+		} `json:"repository"`
+	}
+	
+	if err := json.Unmarshal(searchOutput, &searchResults); err != nil {
+		return nil, fmt.Errorf("failed to parse PR search results: %w", err)
+	}
+
+	// Convert to PR format with repository information
+	var prs []PR
+	for _, result := range searchResults {
+		pr := PR{
+			Number: result.Number,
+			Title:  fmt.Sprintf("[%s/%s] %s", result.Repository.Owner.Login, result.Repository.Name, result.Title),
+			URL:    result.URL,
+		}
+		prs = append(prs, pr)
 	}
 
 	return prs, nil
