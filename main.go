@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"text/tabwriter"
 
@@ -51,7 +52,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if len(m.filteredRepos) > 0 {
 				repo := m.filteredRepos[m.cursor]
-				fmt.Printf("Selected: %s -> %s\n", repo.Directory, repo.GitHubURL)
+				if repo.GitHubURL != "N/A" && repo.GitHubURL != "Non-GitHub" {
+					openURL(repo.GitHubURL)
+				}
 				return m, tea.Quit
 			}
 		case "backspace":
@@ -196,7 +199,12 @@ func (m model) View() string {
 		minPaths := calculateMinimalPaths(m.filteredRepos)
 		
 		for i, repo := range m.filteredRepos {
-			line := fmt.Sprintf("%-40s %s", minPaths[i], repo.GitHubURL)
+			githubIndicator := ""
+			if repo.GitHubURL != "N/A" && repo.GitHubURL != "Non-GitHub" {
+				githubIndicator = " [github]"
+			}
+			
+			line := fmt.Sprintf("%s%s", minPaths[i], githubIndicator)
 			if i == m.cursor {
 				line = selectedStyle.Render(line)
 			}
@@ -206,7 +214,7 @@ func (m model) View() string {
 	}
 	
 	b.WriteString("\n")
-	b.WriteString("Use ↑/↓ or j/k to navigate, Enter to select, q/Esc/Ctrl+C to quit")
+	b.WriteString("Use ↑/↓ or j/k to navigate, Enter to open GitHub URL, q/Esc/Ctrl+C to quit")
 	
 	return b.String()
 }
@@ -252,6 +260,25 @@ func main() {
 
 func isInteractive() bool {
 	return isatty.IsTerminal(os.Stdout.Fd()) && isatty.IsTerminal(os.Stdin.Fd())
+}
+
+func openURL(url string) error {
+	var cmd string
+	var args []string
+
+	switch runtime.GOOS {
+	case "windows":
+		cmd = "cmd"
+		args = []string{"/c", "start", url}
+	case "darwin":
+		cmd = "open"
+		args = []string{url}
+	default: // "linux", "freebsd", "openbsd", "netbsd"
+		cmd = "xdg-open"
+		args = []string{url}
+	}
+
+	return exec.Command(cmd, args...).Start()
 }
 
 func findGitRepositories(rootDir string, skipIgnore bool) ([]GitRepo, error) {
@@ -352,24 +379,14 @@ func convertToGitHubURL(origin string) string {
 		return "N/A"
 	}
 
-	sshRegex := regexp.MustCompile(`^git@github\.com:(.+)/(.+)\.git$`)
-	sshNoGitRegex := regexp.MustCompile(`^git@github\.com:(.+)/(.+)$`)
-	httpsRegex := regexp.MustCompile(`^https://github\.com/(.+)/(.+)\.git$`)
-	httpsNoGitRegex := regexp.MustCompile(`^https://github\.com/(.+)/(.+)$`)
+	sshRegex := regexp.MustCompile(`^git@github\.com:(.+)/(.+?)(?:\.git)?$`)
+	httpsRegex := regexp.MustCompile(`^https://github\.com/(.+)/(.+?)(?:\.git)?$`)
 
 	if matches := sshRegex.FindStringSubmatch(origin); len(matches) == 3 {
 		return fmt.Sprintf("https://github.com/%s/%s", matches[1], matches[2])
 	}
 
-	if matches := sshNoGitRegex.FindStringSubmatch(origin); len(matches) == 3 {
-		return fmt.Sprintf("https://github.com/%s/%s", matches[1], matches[2])
-	}
-
 	if matches := httpsRegex.FindStringSubmatch(origin); len(matches) == 3 {
-		return fmt.Sprintf("https://github.com/%s/%s", matches[1], matches[2])
-	}
-
-	if matches := httpsNoGitRegex.FindStringSubmatch(origin); len(matches) == 3 {
 		return fmt.Sprintf("https://github.com/%s/%s", matches[1], matches[2])
 	}
 
@@ -450,13 +467,17 @@ func printRepositories(repos []GitRepo) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer w.Flush()
 
-	fmt.Fprintln(w, "DIRECTORY\tGITHUB URL")
-	fmt.Fprintln(w, "---------\t----------")
+	fmt.Fprintln(w, "DIRECTORY\tGITHUB")
+	fmt.Fprintln(w, "---------\t------")
 
 	// Calculate minimal distinguishing paths
 	minPaths := calculateMinimalPaths(repos)
 
 	for i, repo := range repos {
-		fmt.Fprintf(w, "%s\t%s\n", minPaths[i], repo.GitHubURL)
+		githubStatus := "No"
+		if repo.GitHubURL != "N/A" && repo.GitHubURL != "Non-GitHub" {
+			githubStatus = "Yes"
+		}
+		fmt.Fprintf(w, "%s\t%s\n", minPaths[i], githubStatus)
 	}
 }
