@@ -55,7 +55,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if repo.GitHubURL != "N/A" && repo.GitHubURL != "Non-GitHub" {
 					openURL(repo.GitHubURL)
 				}
-				return m, tea.Quit
 			}
 		case "backspace":
 			if len(m.searchInput) > 0 {
