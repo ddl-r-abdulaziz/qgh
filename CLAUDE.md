@@ -34,7 +34,7 @@ QGH is a CLI application that helps enumerate git repositories in subdirectories
 - **convertToGitHubURL()**: Converts various git remote formats to GitHub URLs
 - **getPRCount()**: Uses GitHub CLI to get open PR count by current user
 - **searchUserPRs()**: Searches through user's GitHub PRs using GitHub CLI (PR mode)
-- **Interactive UI**: Bubble Tea-based terminal UI with search and navigation
+- **Interactive UI**: Bubble Tea-based terminal UI with search and navigation (↑/↓ arrows, PgUp/PgDn, Enter, Ctrl+D for cd)
 - **PR Mode**: Special mode that searches through user's GitHub PRs and shows matching local repositories
 - **printRepositories()**: Formats output in a tabular format using tabwriter for non-interactive mode
 

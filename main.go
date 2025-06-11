@@ -159,12 +159,12 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
-	case "c":
+	case "ctrl+d":
 		if len(m.filteredRepos) > 0 {
 			repo := m.filteredRepos[m.cursor]
 			return m, changeDirCmd(repo.Directory)
 		}
-	case "up", "k":
+	case "up":
 		if m.cursor > 0 {
 			m.cursor--
 			// Scroll up if cursor goes above visible area
@@ -172,7 +172,7 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.scrollOffset = m.cursor
 			}
 		}
-	case "down", "j":
+	case "down":
 		if m.cursor < len(m.filteredRepos)-1 {
 			m.cursor++
 			// Calculate visible area height (terminal height minus header, search, footer, potential scroll indicators)
@@ -244,7 +244,7 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.handleSearchChange()
 		}
 	default:
-		if len(msg.String()) == 1 && msg.String() != "c" {
+		if len(msg.String()) == 1 {
 			m.searchInput += msg.String()
 			return m.handleSearchChange()
 		}
@@ -256,7 +256,7 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
-	case "c":
+	case "ctrl+d":
 		if m.selectedRepo != nil {
 			return m, changeDirCmd(m.selectedRepo.Directory)
 		}
@@ -269,7 +269,7 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.repoDetails = nil
 		m.detailCursor = 0
 		m.detailScrollOffset = 0
-	case "up", "k":
+	case "up":
 		if m.detailCursor > 0 {
 			m.detailCursor--
 			// Scroll up if cursor goes above visible area
@@ -277,7 +277,7 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.detailScrollOffset = m.detailCursor
 			}
 		}
-	case "down", "j":
+	case "down":
 		maxItems := 1 // URL field
 		if len(m.repoDetails) > 0 {
 			maxItems += len(m.repoDetails)
@@ -662,9 +662,9 @@ func (m model) renderListView() string {
 	
 	b.WriteString("\n")
 	if m.prMode {
-		b.WriteString("PR Mode: Search your GitHub PRs, repos shown match PR repositories. Use ↑/↓ or j/k to navigate, PgUp/PgDn for pages, Enter for details, c to cd and exit, Esc to clear search/quit, Ctrl+C to quit")
+		b.WriteString("PR Mode: Search your GitHub PRs, repos shown match PR repositories. Use ↑/↓ to navigate, PgUp/PgDn for pages, Enter for details, Ctrl+D to cd and exit, Esc to clear search/quit, Ctrl+C to quit")
 	} else {
-		b.WriteString("Use ↑/↓ or j/k to navigate, PgUp/PgDn for pages, Enter for details, c to cd and exit, Esc to clear search/quit, Ctrl+C to quit")
+		b.WriteString("Use ↑/↓ to navigate, PgUp/PgDn for pages, Enter for details, Ctrl+D to cd and exit, Esc to clear search/quit, Ctrl+C to quit")
 	}
 	
 	return b.String()
@@ -780,7 +780,7 @@ func (m model) renderDetailView() string {
 	}
 	
 	b.WriteString("\n")
-	b.WriteString("Use ↑/↓ or j/k to navigate, PgUp/PgDn for pages, Enter to open, c to cd and exit, Esc to go back, Ctrl+C to quit")
+	b.WriteString("Use ↑/↓ to navigate, PgUp/PgDn for pages, Enter to open, Ctrl+D to cd and exit, Esc to go back, Ctrl+C to quit")
 	
 	return b.String()
 }
