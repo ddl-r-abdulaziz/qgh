@@ -198,17 +198,37 @@ func (m model) View() string {
 	} else {
 		minPaths := calculateMinimalPaths(m.filteredRepos)
 		
+		// Find the longest path to determine column width
+		maxPathLen := 0
+		for _, path := range minPaths {
+			if len(path) > maxPathLen {
+				maxPathLen = len(path)
+			}
+		}
+		
+		githubPillStyle := lipgloss.NewStyle().
+			Background(lipgloss.Color("2")).
+			Foreground(lipgloss.Color("0")).
+			Padding(0, 1).
+			Bold(true)
+		
 		for i, repo := range m.filteredRepos {
-			githubIndicator := ""
-			if repo.GitHubURL != "N/A" && repo.GitHubURL != "Non-GitHub" {
-				githubIndicator = " [github]"
-			}
+			pathColumn := fmt.Sprintf("%-*s", maxPathLen, minPaths[i])
 			
-			line := fmt.Sprintf("%s%s", minPaths[i], githubIndicator)
-			if i == m.cursor {
-				line = selectedStyle.Render(line)
+			if repo.GitHubURL != "N/A" && repo.GitHubURL != "Non-GitHub" {
+				githubPill := githubPillStyle.Render("github")
+				line := fmt.Sprintf("%s  %s", pathColumn, githubPill)
+				if i == m.cursor {
+					line = selectedStyle.Render(line)
+				}
+				b.WriteString(line)
+			} else {
+				line := pathColumn
+				if i == m.cursor {
+					line = selectedStyle.Render(line)
+				}
+				b.WriteString(line)
 			}
-			b.WriteString(line)
 			b.WriteString("\n")
 		}
 	}
