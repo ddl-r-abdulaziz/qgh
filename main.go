@@ -353,10 +353,15 @@ func convertToGitHubURL(origin string) string {
 	}
 
 	sshRegex := regexp.MustCompile(`^git@github\.com:(.+)/(.+)\.git$`)
+	sshNoGitRegex := regexp.MustCompile(`^git@github\.com:(.+)/(.+)$`)
 	httpsRegex := regexp.MustCompile(`^https://github\.com/(.+)/(.+)\.git$`)
 	httpsNoGitRegex := regexp.MustCompile(`^https://github\.com/(.+)/(.+)$`)
 
 	if matches := sshRegex.FindStringSubmatch(origin); len(matches) == 3 {
+		return fmt.Sprintf("https://github.com/%s/%s", matches[1], matches[2])
+	}
+
+	if matches := sshNoGitRegex.FindStringSubmatch(origin); len(matches) == 3 {
 		return fmt.Sprintf("https://github.com/%s/%s", matches[1], matches[2])
 	}
 
