@@ -10,12 +10,130 @@ import (
 	"regexp"
 	"strings"
 	"text/tabwriter"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-isatty"
 )
 
 type GitRepo struct {
 	Directory string
 	Origin    string
 	GitHubURL string
+}
+
+type model struct {
+	repos        []GitRepo
+	filteredRepos []GitRepo
+	searchInput  string
+	cursor       int
+	minPaths     []string
+}
+
+func (m model) Init() tea.Cmd {
+	return nil
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q", "esc":
+			return m, tea.Quit
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case "down", "j":
+			if m.cursor < len(m.filteredRepos)-1 {
+				m.cursor++
+			}
+		case "enter":
+			if len(m.filteredRepos) > 0 {
+				repo := m.filteredRepos[m.cursor]
+				fmt.Printf("Selected: %s -> %s\n", repo.Directory, repo.GitHubURL)
+				return m, tea.Quit
+			}
+		case "backspace":
+			if len(m.searchInput) > 0 {
+				m.searchInput = m.searchInput[:len(m.searchInput)-1]
+				m.filterRepos()
+			}
+		default:
+			if len(msg.String()) == 1 {
+				m.searchInput += msg.String()
+				m.filterRepos()
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m *model) filterRepos() {
+	if m.searchInput == "" {
+		m.filteredRepos = m.repos
+		return
+	}
+	
+	var filtered []GitRepo
+	for _, repo := range m.repos {
+		if strings.Contains(strings.ToLower(repo.Directory), strings.ToLower(m.searchInput)) ||
+		   strings.Contains(strings.ToLower(repo.GitHubURL), strings.ToLower(m.searchInput)) {
+			filtered = append(filtered, repo)
+		}
+	}
+	m.filteredRepos = filtered
+	
+	if m.cursor >= len(m.filteredRepos) {
+		m.cursor = len(m.filteredRepos) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+}
+
+func (m model) View() string {
+	var b strings.Builder
+	
+	searchStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(0, 1)
+	
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("205"))
+	
+	selectedStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("62")).
+		Foreground(lipgloss.Color("230"))
+	
+	b.WriteString(headerStyle.Render("Git Repository Explorer"))
+	b.WriteString("\n\n")
+	
+	searchBox := fmt.Sprintf("Search: %s", m.searchInput)
+	b.WriteString(searchStyle.Render(searchBox))
+	b.WriteString("\n\n")
+	
+	if len(m.filteredRepos) == 0 {
+		b.WriteString("No repositories found matching your search.\n")
+	} else {
+		minPaths := calculateMinimalPaths(m.filteredRepos)
+		
+		for i, repo := range m.filteredRepos {
+			line := fmt.Sprintf("%-40s %s", minPaths[i], repo.GitHubURL)
+			if i == m.cursor {
+				line = selectedStyle.Render(line)
+			}
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+	
+	b.WriteString("\n")
+	b.WriteString("Use ↑/↓ or j/k to navigate, Enter to select, q/Esc/Ctrl+C to quit")
+	
+	return b.String()
 }
 
 func main() {
@@ -39,7 +157,26 @@ func main() {
 		return
 	}
 
-	printRepositories(repos)
+	if isInteractive() {
+		m := model{
+			repos:         repos,
+			filteredRepos: repos,
+			searchInput:   "",
+			cursor:        0,
+		}
+		
+		p := tea.NewProgram(m, tea.WithAltScreen())
+		if _, err := p.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error running interactive mode: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		printRepositories(repos)
+	}
+}
+
+func isInteractive() bool {
+	return isatty.IsTerminal(os.Stdout.Fd()) && isatty.IsTerminal(os.Stdin.Fd())
 }
 
 func findGitRepositories(rootDir string, skipIgnore bool) ([]GitRepo, error) {
