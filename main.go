@@ -53,6 +53,9 @@ type model struct {
 	detailCursor   int
 	loadingPRs     bool
 	prLoadError    string
+	
+	// Navigation state
+	startedInDetailView bool // True if we opened directly in detail view
 }
 
 type prLoadedMsg struct {
@@ -78,6 +81,9 @@ func changeDirCmd(path string) tea.Cmd {
 }
 
 func (m model) Init() tea.Cmd {
+	if m.currentView == detailView && m.selectedRepo != nil && m.loadingPRs {
+		return loadPRsCmd(m.selectedRepo.GitHubURL)
+	}
 	return nil
 }
 
@@ -162,6 +168,9 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, changeDirCmd(m.selectedRepo.Directory)
 		}
 	case "esc":
+		if m.startedInDetailView {
+			return m, tea.Quit
+		}
 		m.currentView = listView
 		m.selectedRepo = nil
 		m.repoDetails = nil
@@ -457,6 +466,34 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Check if we're in a git repo with no subdirectories
+	if len(repos) == 0 && isGitRepository(workingDir) {
+		currentRepo, err := getCurrentRepoInfo(workingDir)
+		if err == nil && isInteractive() {
+			// Show detail view for current repository
+			m := model{
+				repos:         []GitRepo{*currentRepo},
+				filteredRepos: []GitRepo{*currentRepo},
+				searchInput:   "",
+				cursor:        0,
+				currentView:   detailView,
+				selectedRepo:  currentRepo,
+				repoDetails:   nil,
+				detailCursor:  0,
+				loadingPRs:    true,
+				prLoadError:   "",
+				startedInDetailView: true,
+			}
+			
+			p := tea.NewProgram(m, tea.WithAltScreen())
+			if _, err := p.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error running interactive mode: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
+
 	if len(repos) == 0 {
 		fmt.Println("No git repositories found in subdirectories.")
 		return
@@ -474,6 +511,7 @@ func main() {
 			detailCursor:  0,
 			loadingPRs:    false,
 			prLoadError:   "",
+			startedInDetailView: false,
 		}
 		
 		// Apply initial filter if search term provided
@@ -493,6 +531,34 @@ func main() {
 
 func isInteractive() bool {
 	return isatty.IsTerminal(os.Stdout.Fd()) && isatty.IsTerminal(os.Stdin.Fd())
+}
+
+func isGitRepository(dir string) bool {
+	gitDir := filepath.Join(dir, ".git")
+	if stat, err := os.Stat(gitDir); err == nil {
+		return stat.IsDir() || stat.Mode().IsRegular() // .git can be a file (worktree/submodule)
+	}
+	return false
+}
+
+func getCurrentRepoInfo(dir string) (*GitRepo, error) {
+	if !isGitRepository(dir) {
+		return nil, fmt.Errorf("not a git repository")
+	}
+	
+	origin, err := getOriginRemote(dir)
+	if err != nil {
+		origin = "N/A"
+	}
+	
+	githubURL := convertToGitHubURL(origin)
+	
+	return &GitRepo{
+		Directory: dir,
+		Origin:    origin,
+		GitHubURL: githubURL,
+		PRCount:   0,
+	}, nil
 }
 
 func openURL(url string) error {
