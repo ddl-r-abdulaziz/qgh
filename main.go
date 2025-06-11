@@ -60,10 +60,20 @@ type prLoadedMsg struct {
 	err error
 }
 
+type changeDirMsg struct {
+	path string
+}
+
 func loadPRsCmd(repoURL string) tea.Cmd {
 	return func() tea.Msg {
 		prs, err := getRepositoryPRs(repoURL)
 		return prLoadedMsg{prs: prs, err: err}
+	}
+}
+
+func changeDirCmd(path string) tea.Cmd {
+	return func() tea.Msg {
+		return changeDirMsg{path: path}
 	}
 }
 
@@ -83,6 +93,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 		
+	case changeDirMsg:
+		// Write the directory path to a temp file for the shell to read
+		tmpFile := "/tmp/qgh_cd"
+		if err := os.WriteFile(tmpFile, []byte(msg.path), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing cd path: %v\n", err)
+		}
+		return m, tea.Quit
+		
 	case tea.KeyMsg:
 		if m.currentView == listView {
 			return m.updateListView(msg)
@@ -97,6 +115,11 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q":
 		return m, tea.Quit
+	case "c":
+		if len(m.filteredRepos) > 0 {
+			repo := m.filteredRepos[m.cursor]
+			return m, changeDirCmd(repo.Directory)
+		}
 	case "up", "k":
 		if m.cursor > 0 {
 			m.cursor--
@@ -122,7 +145,7 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.filterRepos()
 		}
 	default:
-		if len(msg.String()) == 1 {
+		if len(msg.String()) == 1 && msg.String() != "c" {
 			m.searchInput += msg.String()
 			m.filterRepos()
 		}
@@ -134,6 +157,10 @@ func (m model) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q":
 		return m, tea.Quit
+	case "c":
+		if m.selectedRepo != nil {
+			return m, changeDirCmd(m.selectedRepo.Directory)
+		}
 	case "esc":
 		m.currentView = listView
 		m.selectedRepo = nil
@@ -334,7 +361,7 @@ func (m model) renderListView() string {
 	}
 	
 	b.WriteString("\n")
-	b.WriteString("Use ↑/↓ or j/k to navigate, Enter for details, q/Ctrl+C to quit")
+	b.WriteString("Use ↑/↓ or j/k to navigate, Enter for details, c to cd and exit, q/Ctrl+C to quit")
 	
 	return b.String()
 }
@@ -403,7 +430,7 @@ func (m model) renderDetailView() string {
 	}
 	
 	b.WriteString("\n")
-	b.WriteString("Use ↑/↓ or j/k to navigate, Enter to open, Esc to go back, q/Ctrl+C to quit")
+	b.WriteString("Use ↑/↓ or j/k to navigate, Enter to open, c to cd and exit, Esc to go back, q/Ctrl+C to quit")
 	
 	return b.String()
 }

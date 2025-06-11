@@ -26,6 +26,32 @@ make
 make install # will prompt for sudo password
 ```
 
+### Shell Integration (for 'c' shortcut)
+
+To enable the 'c' shortcut to change directories, add this function to your shell configuration:
+
+**Bash/Zsh (~/.bashrc or ~/.zshrc):**
+```bash
+qgh() {
+    command qgh "$@"
+    if [[ -f /tmp/qgh_cd ]]; then
+        cd "$(<"/tmp/qgh_cd")"
+        rm /tmp/qgh_cd
+    fi
+}
+```
+
+**Fish (~/.config/fish/functions/qgh.fish):**
+```fish
+function qgh
+    command qgh $argv
+    if test -f /tmp/qgh_cd
+        cd (cat /tmp/qgh_cd)
+        rm /tmp/qgh_cd
+    end
+end
+```
+
 ### Prerequisites
 
 - Go 1.24.3 or later
