@@ -53,3 +53,5 @@ When using the `--pr` flag, QGH switches to PR mode where:
 - **Repository matching**: Search for "frontend" to find PRs in repositories containing "frontend"
 - **Mnemonic matching**: Search for "fb" to match "Fix Bug" or "Frontend Backend"
 - **Debounced search**: 2-second delay prevents excessive GitHub API calls while typing
+- **PR name display**: Shows matching PR titles next to repositories (e.g., "myrepo ✓ → Fix authentication bug")
+- **Multiple PR indication**: Shows count when multiple PRs match (e.g., "myrepo ✓ → 3 PRs")

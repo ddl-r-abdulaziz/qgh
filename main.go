@@ -25,6 +25,7 @@ type GitRepo struct {
 	Origin    string
 	GitHubURL string
 	PRCount   int
+	MatchingPRs []PR // Used in PR mode to store matching PRs for this repo
 }
 
 type PR struct {
@@ -362,7 +363,14 @@ func (m model) handleSearchChange() (tea.Model, tea.Cmd) {
 
 func (m *model) filterRepos() {
 	if m.searchInput == "" {
-		m.filteredRepos = m.repos
+		// Clear MatchingPRs when showing all repos
+		var allRepos []GitRepo
+		for _, repo := range m.repos {
+			repoCopy := repo
+			repoCopy.MatchingPRs = nil
+			allRepos = append(allRepos, repoCopy)
+		}
+		m.filteredRepos = allRepos
 	} else if m.prMode {
 		// In PR mode, search for PRs and filter repos that match
 		m.filterReposByPRs()
@@ -379,7 +387,10 @@ func (m *model) filterRepos() {
 			   strings.Contains(urlLower, searchLower) ||
 			   matchesMnemonic(dirLower, searchLower) ||
 			   matchesMnemonic(urlLower, searchLower) {
-				filtered = append(filtered, repo)
+				// Clear MatchingPRs in normal mode
+				repoCopy := repo
+				repoCopy.MatchingPRs = nil
+				filtered = append(filtered, repoCopy)
 			}
 		}
 		m.filteredRepos = filtered
@@ -404,8 +415,8 @@ func (m *model) filterReposByPRs() {
 		return
 	}
 	
-	// Extract repository URLs from PRs
-	prRepoURLs := make(map[string]bool)
+	// Group PRs by repository URL
+	prsByRepo := make(map[string][]PR)
 	for _, pr := range prs {
 		// Extract repository URL from PR URL
 		// PR URL format: https://github.com/owner/repo/pull/123
@@ -414,17 +425,20 @@ func (m *model) filterReposByPRs() {
 			parts := strings.Split(pr.URL, "/pull/")
 			if len(parts) > 0 {
 				repoURL := parts[0]
-				prRepoURLs[repoURL] = true
+				prsByRepo[repoURL] = append(prsByRepo[repoURL], pr)
 			}
 		}
 	}
 	
-	// Filter local repositories that match PR repositories
+	// Filter local repositories that match PR repositories and attach matching PRs
 	var filtered []GitRepo
 	for _, repo := range m.repos {
 		if repo.GitHubURL != "N/A" && repo.GitHubURL != "Non-GitHub" {
-			if prRepoURLs[repo.GitHubURL] {
-				filtered = append(filtered, repo)
+			if matchingPRs, exists := prsByRepo[repo.GitHubURL]; exists {
+				// Create a copy of the repo with matching PRs attached
+				repoWithPRs := repo
+				repoWithPRs.MatchingPRs = matchingPRs
+				filtered = append(filtered, repoWithPRs)
 			}
 		}
 	}
@@ -601,6 +615,34 @@ func (m model) renderListView() string {
 			if repo.GitHubURL != "N/A" && repo.GitHubURL != "Non-GitHub" {
 				githubCheck := githubCheckStyle.Render("✓")
 				line = fmt.Sprintf("%s  %s", line, githubCheck)
+			}
+			
+			// In PR mode, show matching PR names
+			if m.prMode && len(repo.MatchingPRs) > 0 {
+				prStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color("8")). // Gray color for PR names
+					Italic(true)
+				
+				// Show first PR name, or count if multiple
+				if len(repo.MatchingPRs) == 1 {
+					// Extract just the title part (remove [owner/repo] prefix)
+					prTitle := repo.MatchingPRs[0].Title
+					if strings.Contains(prTitle, "] ") {
+						parts := strings.SplitN(prTitle, "] ", 2)
+						if len(parts) > 1 {
+							prTitle = parts[1]
+						}
+					}
+					// Truncate if too long
+					if len(prTitle) > 40 {
+						prTitle = prTitle[:37] + "..."
+					}
+					prInfo := prStyle.Render(fmt.Sprintf(" → %s", prTitle))
+					line = fmt.Sprintf("%s%s", line, prInfo)
+				} else {
+					prInfo := prStyle.Render(fmt.Sprintf(" → %d PRs", len(repo.MatchingPRs)))
+					line = fmt.Sprintf("%s%s", line, prInfo)
+				}
 			}
 			
 			if i == m.cursor {
