@@ -76,9 +76,16 @@ func (m *model) filterRepos() {
 	}
 	
 	var filtered []GitRepo
+	searchLower := strings.ToLower(m.searchInput)
+	
 	for _, repo := range m.repos {
-		if strings.Contains(strings.ToLower(repo.Directory), strings.ToLower(m.searchInput)) ||
-		   strings.Contains(strings.ToLower(repo.GitHubURL), strings.ToLower(m.searchInput)) {
+		dirLower := strings.ToLower(repo.Directory)
+		urlLower := strings.ToLower(repo.GitHubURL)
+		
+		if strings.Contains(dirLower, searchLower) ||
+		   strings.Contains(urlLower, searchLower) ||
+		   matchesMnemonic(dirLower, searchLower) ||
+		   matchesMnemonic(urlLower, searchLower) {
 			filtered = append(filtered, repo)
 		}
 	}
@@ -90,6 +97,74 @@ func (m *model) filterRepos() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
+}
+
+func matchesMnemonic(text, query string) bool {
+	if len(query) == 0 {
+		return true
+	}
+	
+	words := extractWords(text)
+	
+	queryIndex := 0
+	for _, word := range words {
+		if queryIndex >= len(query) {
+			break
+		}
+		
+		if len(word) > 0 && strings.ToLower(string(word[0])) == strings.ToLower(string(query[queryIndex])) {
+			queryIndex++
+		}
+	}
+	
+	return queryIndex == len(query)
+}
+
+func extractWords(text string) []string {
+	var words []string
+	var currentWord strings.Builder
+	
+	for i, r := range text {
+		if isWordBoundary(text, i) {
+			if currentWord.Len() > 0 {
+				words = append(words, currentWord.String())
+				currentWord.Reset()
+			}
+		}
+		
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			currentWord.WriteRune(r)
+		}
+	}
+	
+	if currentWord.Len() > 0 {
+		words = append(words, currentWord.String())
+	}
+	
+	return words
+}
+
+func isWordBoundary(text string, pos int) bool {
+	if pos == 0 {
+		return true
+	}
+	
+	if pos >= len(text) {
+		return false
+	}
+	
+	current := rune(text[pos])
+	prev := rune(text[pos-1])
+	
+	if prev == '-' || prev == '_' || prev == '/' || prev == '\\' || prev == '.' {
+		return true
+	}
+	
+	if (prev >= 'a' && prev <= 'z') && (current >= 'A' && current <= 'Z') {
+		return true
+	}
+	
+	return false
 }
 
 func (m model) View() string {
