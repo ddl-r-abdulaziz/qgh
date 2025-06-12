@@ -11,13 +11,15 @@ This is a Go project (`github.com/ddl-r-abdulaziz/qgh`) using Go 1.24.3. QGH (Qu
 ### Development
 - `go run .` - Run the qgh CLI application
 - `go run . --pr` - Run in PR mode to search through user's GitHub PRs
-- `make` - Build the qgh executable to ./build/qgh
+- `make` - Build the qgh executable to ./build/qgh (preferred build method)
 - `make clean` - Remove build directory
 - `./build/qgh` - Run the built application to find git repositories
 - `./build/qgh --pr` - Run in PR mode
 - `go test ./...` - Run all tests
 - `go mod tidy` - Clean up module dependencies
 - `go fmt ./...` - Format all Go files
+
+**Note**: Use `make` instead of `go build .` for building the application.
 
 ### Testing
 - `go test` - Run tests in current directory
@@ -32,8 +34,8 @@ QGH is a CLI application that helps enumerate git repositories in subdirectories
 - **findGitRepositories()**: Walks through subdirectories to find .git folders
 - **getOriginRemote()**: Executes git commands to get the origin remote URL
 - **convertToGitHubURL()**: Converts various git remote formats to GitHub URLs
-- **getPRCount()**: Uses GitHub CLI to get open PR count by current user
-- **searchUserPRs()**: Searches through user's GitHub PRs using GitHub CLI (PR mode)
+- **loadAllUserPRs()**: Loads all user PRs at startup into an in-memory cache using GitHub CLI
+- **PRCache**: In-memory cache structure that stores all user PRs for fast filtering
 - **Interactive UI**: Bubble Tea-based terminal UI with search and navigation (↑/↓ arrows, PgUp/PgDn, Enter, Ctrl+D for cd, Ctrl+P to switch modes)
 - **PR Mode**: Special mode that searches through user's GitHub PRs and shows matching local repositories
 - **printRepositories()**: Formats output in a tabular format using tabwriter for non-interactive mode
@@ -49,9 +51,9 @@ QGH supports two search modes that you can switch between dynamically:
 
 **PR Mode:**
 - The search box searches through your GitHub PRs with partial matching support
-- Searches match PR titles, repository names, and support mnemonic matching
+- Searches match PR titles and support mnemonic matching
 - Only local repositories that have matching GitHub repositories with your PRs are shown
-- Search requests are debounced by 2 seconds to prevent excessive API calls
+- All PR data is cached at startup for instant search results (no API delays)
 - The UI indicates "PR Mode" in the header and shows "PR Search:" in the search box
 - Use `Esc` twice (clear search, then exit mode) to return to Local mode
 
@@ -62,8 +64,8 @@ QGH supports two search modes that you can switch between dynamically:
 
 ### PR Search Features:
 - **Partial matching**: Search for "bug" to find PRs with titles like "Fix bug in authentication"
-- **Repository matching**: Search for "frontend" to find PRs in repositories containing "frontend"
 - **Mnemonic matching**: Search for "fb" to match "Fix Bug" or "Frontend Backend"
-- **Debounced search**: 2-second delay prevents excessive GitHub API calls while typing
+- **Instant search**: All PRs are cached at startup for immediate filtering without API delays
 - **PR name display**: Shows matching PR titles next to repositories (e.g., "myrepo ✓ → Fix authentication bug")
 - **Multiple PR indication**: Shows count when multiple PRs match (e.g., "myrepo ✓ → 3 PRs")
+- **PR counts**: All repositories show their total PR count from the cache
