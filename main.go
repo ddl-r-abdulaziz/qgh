@@ -112,8 +112,8 @@ func changeDirCmd(path string) tea.Cmd {
 }
 
 func (m model) Init() tea.Cmd {
-	// Always load PR cache at startup if not already loaded
-	if m.prCache == nil || !m.prCache.loaded {
+	// Only load PR cache if we're in PR mode or not in single repo detail view
+	if !m.startedInDetailView && (m.prCache == nil || !m.prCache.loaded) {
 		return loadPRCacheCmd()
 	}
 	
@@ -1200,7 +1200,7 @@ func getRepositoryPRs(repoURL string) ([]PR, error) {
 	currentUser := strings.TrimSpace(string(userOutput))
 
 	// Get PRs for current user with full details
-	prCmd := exec.Command("gh", "pr", "list", "--repo", fmt.Sprintf("%s/%s", owner, repo), "--author", currentUser, "--json", "number,title,url,headRefName")
+	prCmd := exec.Command("gh", "pr", "list", "--repo", fmt.Sprintf("%s/%s", owner, repo), "--author", currentUser, "--json", "number,title,url")
 	prOutput, err := prCmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PRs: %w", err)
