@@ -868,15 +868,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	repos, err := findGitRepositories(workingDir, *skipIgnore)
+	// Check if QGH_WORKSPACE should be used instead of current directory
+	searchDir := getSearchDirectory(workingDir)
+
+	repos, err := findGitRepositories(searchDir, *skipIgnore)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error finding git repositories: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Check if we're in a git repo with no subdirectories
-	if len(repos) == 0 && isGitRepository(workingDir) {
-		currentRepo, err := getCurrentRepoInfo(workingDir)
+	if len(repos) == 0 && isGitRepository(searchDir) {
+		currentRepo, err := getCurrentRepoInfo(searchDir)
 		if err == nil && isInteractive() {
 			// Show detail view for current repository
 			m := model{
@@ -1353,6 +1356,24 @@ func findCommonPrefix(paths [][]string) int {
 	}
 
 	return commonLen
+}
+
+func getSearchDirectory(workingDir string) string {
+	// If current directory is git-controlled, use it
+	if isGitRepository(workingDir) {
+		return workingDir
+	}
+	
+	// Check if QGH_WORKSPACE environment variable is set
+	if workspace := os.Getenv("QGH_WORKSPACE"); workspace != "" {
+		// Verify the workspace directory exists
+		if stat, err := os.Stat(workspace); err == nil && stat.IsDir() {
+			return workspace
+		}
+	}
+	
+	// Fall back to working directory
+	return workingDir
 }
 
 func printRepositories(repos []GitRepo) {
