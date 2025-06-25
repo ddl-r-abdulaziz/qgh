@@ -74,6 +74,21 @@ qgh oic                # Start with mnemonic search for "operations-istio-cni"
 ### Options
 
 - `--skip-ignore` - Ignore .gitignore files and traverse all directories
+- `--pr` - Start in PR search mode to search through user's GitHub PRs
+
+### Environment Variables
+
+- `QGH_WORKSPACE` - When launched from a non-git directory, qgh will search this directory instead of the current working directory. This prevents accidentally crawling enormous directory structures.
+
+**Example:**
+```bash
+# Set workspace directory
+export QGH_WORKSPACE=/path/to/your/workspace
+
+# Now qgh will search /path/to/your/workspace when run from non-git directories
+cd /tmp
+qgh  # Searches /path/to/your/workspace instead of /tmp
+```
 
 ## GitHub Integration
 
