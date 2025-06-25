@@ -27,9 +27,9 @@ make
 make install # will prompt for sudo password
 ```
 
-### Shell Integration (for 'c' shortcut)
+### Shell Integration (for 'ctrl-d' shortcut)
 
-To enable the 'c' shortcut to change directories, add this function to your shell configuration:
+To enable the 'ctrl-d' shortcut to change directories, add this function to your shell configuration:
 
 **Bash/Zsh (~/.bashrc or ~/.zshrc):**
 ```bash

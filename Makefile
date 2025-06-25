@@ -17,7 +17,7 @@ install: $(TARGET)
 	@echo ""
 	@echo "✅ qgh installed successfully!"
 	@echo ""
-	@echo "To enable the 'c' shortcut to change directories, add this to your shell config:"
+	@echo "To enable the 'ctrl-d' shortcut to change directories, add this to your shell config:"
 	@echo ""
 	@echo "For Bash/Zsh (add to ~/.bashrc or ~/.zshrc):"
 	@echo "qgh() {"
