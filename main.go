@@ -1099,7 +1099,7 @@ func convertToGitHubURL(origin string) string {
 		return "N/A"
 	}
 
-	sshRegex := regexp.MustCompile(`^git@github\.com:(.+)/(.+?)(?:\.git)?$`)
+	sshRegex := regexp.MustCompile(`^(?:ssh://)?git@github\.com[:/](.+)/(.+?)(?:\.git)?$`)
 	httpsRegex := regexp.MustCompile(`^https://github\.com/(.+)/(.+?)(?:\.git)?$`)
 
 	if matches := sshRegex.FindStringSubmatch(origin); len(matches) == 3 {
