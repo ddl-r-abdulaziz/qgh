@@ -1,44 +1,27 @@
-GO_SOURCES := $(wildcard *.go)
-BUILD_DIR := build
-TARGET := $(BUILD_DIR)/qgh
+# qgh — prints the current repo's GitHub URL and your open PRs against it
 
-.PHONY: all clean install
+BINARY  := qgh
+BIN_DIR := build
 
-all: $(TARGET)
+.DEFAULT_GOAL := help
 
-$(TARGET): go.mod $(GO_SOURCES) | $(BUILD_DIR)
-	go build -o $@ .
+.PHONY: help test build install clean
 
-$(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)
+help: ## Show this help
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
 
-install: $(TARGET)
-	sudo install $(TARGET) /usr/local/bin/
+test: ## Run all unit tests
+	go test ./...
+
+build: ## Build the binary to ./build/qgh
+	mkdir -p $(BIN_DIR)
+	go build -o $(BIN_DIR)/$(BINARY) .
+
+install: build ## Install the binary to /usr/local/bin (sudo)
+	sudo install $(BIN_DIR)/$(BINARY) /usr/local/bin/
 	@echo ""
-	@echo "✅ qgh installed successfully!"
-	@echo ""
-	@echo "To enable the 'ctrl-d' shortcut to change directories, add this to your shell config:"
-	@echo ""
-	@echo "For Bash/Zsh (add to ~/.bashrc or ~/.zshrc):"
-	@echo "qgh() {"
-	@echo "    command qgh \"\$$@\""
-	@echo "    if [[ -f /tmp/qgh_cd ]]; then"
-	@echo "        cd \"\$$(<\"/tmp/qgh_cd\")\""
-	@echo "        rm /tmp/qgh_cd"
-	@echo "    fi"
-	@echo "}"
-	@echo ""
-	@echo "For Fish (save to ~/.config/fish/functions/qgh.fish):"
-	@echo "function qgh"
-	@echo "    command qgh \$$argv"
-	@echo "    if test -f /tmp/qgh_cd"
-	@echo "        cd (cat /tmp/qgh_cd)"
-	@echo "        rm /tmp/qgh_cd"
-	@echo "    end"
-	@echo "end"
-	@echo ""
-	@echo "Then reload your shell or run: source ~/.bashrc (or ~/.zshrc)"
+	@echo "qgh installed successfully!"
 
-clean:
-	rm -rf $(BUILD_DIR)
-
+clean: ## Remove build artifacts
+	rm -rf $(BIN_DIR)
