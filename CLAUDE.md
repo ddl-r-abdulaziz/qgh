@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Go project (`github.com/ddl-r-abdulaziz/qgh`) using Go 1.24.3. QGH (Quick GitHub) is a small non-interactive CLI: run `qgh` with no flags inside a git repository and it prints the GitHub URL of `origin`, then lists the current user's open pull requests against that repository.
+This is a Go project (`github.com/ddl-r-abdulaziz/qgh`) using Go 1.24.3. QGH (Quick GitHub) is a small CLI: run `qgh` with no flags inside a git repository and it prints the GitHub URL of `origin`, then lists the current user's open pull requests against that repository. This plain-print behavior is the default and must not change. The `-i` flag opts into an interactive Bubble Tea terminal UI for the current repository.
 
 ## Common Commands
 
@@ -15,6 +15,7 @@ This is a Go project (`github.com/ddl-r-abdulaziz/qgh`) using Go 1.24.3. QGH (Qu
 - `make test` - Run all tests
 - `make clean` - Remove build directory
 - `./build/qgh` - Run the built application in the current git repository
+- `./build/qgh -i` - Launch interactive mode (Bubble Tea terminal UI) for the current repo
 - `go mod tidy` - Clean up module dependencies
 - `go fmt ./...` - Format all Go files
 
@@ -39,6 +40,7 @@ QGH is a single-repository CLI tool. All functionality lives in `main.go`:
 - **convertToGitHubURL()**: Converts various git remote formats to GitHub URLs
 - **checkGitHubAuth()**: Verifies the GitHub CLI is authenticated
 - **getRepositoryPRs()**: Lists the current user's open PRs for a repository via `gh pr list --author @me`
+- **model / Init() / Update() / View()**: The Bubble Tea loop behind the `-i` flag. It implements single-repo interactive browsing only — not multi-repo scanning, no PR-mode toggle, and no cd/shell integration (that was deliberately dropped and should not be reintroduced). PRs load asynchronously via `loadPRsCmd`; `openURL()` opens the selected URL in the browser.
 
 Exit-code policy: a non-git working directory is fatal (exit 1). A PR-fetch failure is a
 warning on stderr with exit 0, since the GitHub URL has already been printed.
