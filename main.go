@@ -27,6 +27,20 @@ type PR struct {
 	URL    string `json:"url"`
 }
 
+type Artifact struct {
+	ShortSHA  string
+	CommitURL string
+	Label     string
+	ImageRef  string
+}
+
+// ArtifactGroup is one build (commit) and the artifacts it produced.
+type ArtifactGroup struct {
+	ShortSHA  string
+	CommitURL string
+	Artifacts []Artifact
+}
+
 func main() {
 	interactive := flag.Bool("i", false, "interactive mode: browse this repo's PRs in a terminal UI")
 	flag.Parse()
@@ -78,10 +92,15 @@ func main() {
 }
 
 func runInteractive(repo *GitRepo) {
+	owner, repoName, _ := parseGitHubURL(repo.GitHubURL)
 	m := model{
 		repo:           repo,
+		owner:          owner,
+		repoName:       repoName,
 		loadingPRs:     true,
 		terminalHeight: 24,
+		terminalWidth:  80,
+		artifacts:      make(map[int]artifactState),
 	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
@@ -90,15 +109,28 @@ func runInteractive(repo *GitRepo) {
 	}
 }
 
+type artifactState struct {
+	loading   bool
+	artifacts []Artifact
+	err       error
+}
+
 type model struct {
-	repo        *GitRepo
+	repo     *GitRepo
+	owner    string
+	repoName string
+
 	prs         []PR
 	cursor      int
 	loadingPRs  bool
 	prLoadError string
 
+	artifacts map[int]artifactState // keyed by PR number
+
 	terminalHeight int
+	terminalWidth  int
 	scrollOffset   int
+	statusMsg      string
 }
 
 type prLoadedMsg struct {
@@ -106,10 +138,23 @@ type prLoadedMsg struct {
 	err error
 }
 
+type artifactsLoadedMsg struct {
+	prNumber  int
+	artifacts []Artifact
+	err       error
+}
+
 func loadPRsCmd(repoURL string) tea.Cmd {
 	return func() tea.Msg {
 		prs, err := getRepositoryPRs(repoURL)
 		return prLoadedMsg{prs: prs, err: err}
+	}
+}
+
+func loadArtifactsCmd(owner, repoName string, prNumber int) tea.Cmd {
+	return func() tea.Msg {
+		artifacts, err := getPRArtifacts(owner, repoName, prNumber)
+		return artifactsLoadedMsg{prNumber: prNumber, artifacts: artifacts, err: err}
 	}
 }
 
@@ -125,10 +170,31 @@ func (m model) visibleHeight() int {
 	return h
 }
 
+// selectedPR returns the PR under the cursor, or nil if the cursor is on the URL row.
+func (m model) selectedPR() *PR {
+	if m.cursor == 0 || m.cursor-1 >= len(m.prs) {
+		return nil
+	}
+	return &m.prs[m.cursor-1]
+}
+
+func (m *model) ensureArtifactsLoading() tea.Cmd {
+	pr := m.selectedPR()
+	if pr == nil {
+		return nil
+	}
+	if _, ok := m.artifacts[pr.Number]; ok {
+		return nil
+	}
+	m.artifacts[pr.Number] = artifactState{loading: true}
+	return loadArtifactsCmd(m.owner, m.repoName, pr.Number)
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.terminalHeight = msg.Height
+		m.terminalWidth = msg.Width
 		return m, nil
 
 	case prLoadedMsg:
@@ -138,6 +204,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.prs = msg.prs
 		}
+		cmd := m.ensureArtifactsLoading()
+		return m, cmd
+
+	case artifactsLoadedMsg:
+		m.artifacts[msg.prNumber] = artifactState{artifacts: msg.artifacts, err: msg.err}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -150,6 +221,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor < m.scrollOffset {
 					m.scrollOffset = m.cursor
 				}
+				return m, m.ensureArtifactsLoading()
 			}
 		case "down":
 			maxItems := 1 + len(m.prs)
@@ -159,6 +231,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor >= m.scrollOffset+visibleHeight {
 					m.scrollOffset = m.cursor - visibleHeight + 1
 				}
+				return m, m.ensureArtifactsLoading()
 			}
 		case "pgup":
 			visibleHeight := m.visibleHeight()
@@ -169,6 +242,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor < m.scrollOffset {
 				m.scrollOffset = m.cursor
 			}
+			return m, m.ensureArtifactsLoading()
 		case "pgdown":
 			visibleHeight := m.visibleHeight()
 			maxItems := 1 + len(m.prs)
@@ -179,13 +253,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor >= m.scrollOffset+visibleHeight {
 				m.scrollOffset = m.cursor - visibleHeight + 1
 			}
+			return m, m.ensureArtifactsLoading()
 		case "enter":
+			m.statusMsg = ""
 			if m.cursor == 0 {
 				if m.repo.GitHubURL != "N/A" && m.repo.GitHubURL != "Non-GitHub" {
-					openURL(m.repo.GitHubURL)
+					if err := openURL(m.repo.GitHubURL); err != nil {
+						m.statusMsg = fmt.Sprintf("could not open browser: %v", err)
+					}
 				}
-			} else if m.cursor-1 < len(m.prs) {
-				openURL(m.prs[m.cursor-1].URL)
+			} else if pr := m.selectedPR(); pr != nil {
+				if err := openURL(pr.URL); err != nil {
+					m.statusMsg = fmt.Sprintf("could not open browser: %v", err)
+				}
+			}
+		case "c":
+			m.statusMsg = ""
+			if pr := m.selectedPR(); pr != nil {
+				if state, ok := m.artifacts[pr.Number]; ok && len(state.artifacts) > 0 {
+					if err := openURL(state.artifacts[0].CommitURL); err != nil {
+						m.statusMsg = fmt.Sprintf("could not open browser: %v", err)
+					}
+				}
 			}
 		}
 	}
@@ -193,6 +282,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
+	left := m.renderList()
+	right := m.renderArtifactPanel()
+
+	leftWidth := m.terminalWidth * 3 / 5
+	if leftWidth < 30 {
+		leftWidth = 30
+	}
+	rightWidth := m.terminalWidth - leftWidth - 3
+	if rightWidth < 20 {
+		rightWidth = 20
+	}
+
+	leftStyle := lipgloss.NewStyle().Width(leftWidth)
+	rightStyle := lipgloss.NewStyle().Width(rightWidth).PaddingLeft(2).
+		BorderStyle(lipgloss.NormalBorder()).BorderLeft(true).
+		BorderTop(false).BorderRight(false).BorderBottom(false)
+
+	body := lipgloss.JoinHorizontal(lipgloss.Top, leftStyle.Render(left), rightStyle.Render(right))
+
+	footer := "↑/↓ navigate  PgUp/PgDn page  Enter open  c open commit  Esc/q quit"
+	if m.statusMsg != "" {
+		footer = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(m.statusMsg) + "\n" + footer
+	}
+	return body + "\n\n" + footer
+}
+
+func (m model) renderList() string {
 	var b strings.Builder
 
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
@@ -267,8 +383,50 @@ func (m model) View() string {
 		}
 	}
 
-	b.WriteString("\n")
-	b.WriteString("↑/↓ navigate  PgUp/PgDn page  Enter open  Esc/q quit")
+	return b.String()
+}
+
+func (m model) renderArtifactPanel() string {
+	var b strings.Builder
+
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
+	loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
+
+	b.WriteString(headerStyle.Render("Artifacts"))
+	b.WriteString("\n\n")
+
+	pr := m.selectedPR()
+	if pr == nil {
+		b.WriteString("Select a PR to see its build artifacts.")
+		return b.String()
+	}
+
+	state, ok := m.artifacts[pr.Number]
+	switch {
+	case !ok || state.loading:
+		b.WriteString(loadingStyle.Render("Loading artifacts..."))
+	case state.err != nil:
+		b.WriteString(errorStyle.Render(fmt.Sprintf("Error: %s", state.err)))
+	case len(state.artifacts) == 0:
+		b.WriteString("No artifact info for this PR.")
+	default:
+		groups := groupArtifactsByCommit(state.artifacts)
+		for gi, g := range groups {
+			if gi > 0 {
+				b.WriteString("\n\n")
+			}
+			b.WriteString(labelStyle.Render("Commit: "))
+			b.WriteString(g.ShortSHA)
+			b.WriteString("\n")
+			for _, a := range g.Artifacts {
+				b.WriteString(fmt.Sprintf("  %s: %s\n", a.Label, a.ImageRef))
+			}
+		}
+		b.WriteString("\n")
+		b.WriteString("(press c to open the first commit above)")
+	}
 
 	return b.String()
 }
@@ -358,6 +516,15 @@ func checkGitHubAuth() bool {
 	return err == nil
 }
 
+func parseGitHubURL(url string) (owner, repo string, ok bool) {
+	re := regexp.MustCompile(`https://github\.com/([^/]+)/([^/]+)`)
+	matches := re.FindStringSubmatch(url)
+	if len(matches) != 3 {
+		return "", "", false
+	}
+	return matches[1], matches[2], true
+}
+
 func getRepositoryPRs(repoURL string) ([]PR, error) {
 	if repoURL == "N/A" || repoURL == "Non-GitHub" {
 		return nil, fmt.Errorf("not a GitHub repository")
@@ -366,12 +533,10 @@ func getRepositoryPRs(repoURL string) ([]PR, error) {
 		return nil, fmt.Errorf("GitHub CLI not authenticated")
 	}
 
-	re := regexp.MustCompile(`https://github\.com/([^/]+)/([^/]+)`)
-	matches := re.FindStringSubmatch(repoURL)
-	if len(matches) != 3 {
+	owner, repo, ok := parseGitHubURL(repoURL)
+	if !ok {
 		return nil, fmt.Errorf("invalid GitHub URL format")
 	}
-	owner, repo := matches[1], matches[2]
 
 	cmd := exec.Command("gh", "pr", "list", "--repo", fmt.Sprintf("%s/%s", owner, repo),
 		"--author", "@me", "--json", "number,title,url")
@@ -385,4 +550,72 @@ func getRepositoryPRs(repoURL string) ([]PR, error) {
 		return nil, fmt.Errorf("failed to parse PR data: %w", err)
 	}
 	return prs, nil
+}
+
+var artifactLineRegex = regexp.MustCompile("^- \\[`([0-9a-f]+)`\\]\\(([^)]+)\\): (.+)$")
+
+func parseArtifactComment(body string) []Artifact {
+	var artifacts []Artifact
+	for _, line := range strings.Split(body, "\n") {
+		matches := artifactLineRegex.FindStringSubmatch(strings.TrimSpace(line))
+		if matches == nil {
+			continue
+		}
+		label, ref := matches[3], ""
+		if idx := strings.Index(matches[3], ": "); idx != -1 {
+			label, ref = matches[3][:idx], matches[3][idx+2:]
+		}
+		artifacts = append(artifacts, Artifact{
+			ShortSHA:  matches[1],
+			CommitURL: matches[2],
+			Label:     label,
+			ImageRef:  ref,
+		})
+	}
+	return artifacts
+}
+
+// groupArtifactsByCommit groups artifacts by ShortSHA, preserving the order
+// each SHA first appears in.
+func groupArtifactsByCommit(artifacts []Artifact) []ArtifactGroup {
+	var groups []ArtifactGroup
+	index := make(map[string]int)
+	for _, a := range artifacts {
+		if i, ok := index[a.ShortSHA]; ok {
+			groups[i].Artifacts = append(groups[i].Artifacts, a)
+			continue
+		}
+		index[a.ShortSHA] = len(groups)
+		groups = append(groups, ArtifactGroup{
+			ShortSHA:  a.ShortSHA,
+			CommitURL: a.CommitURL,
+			Artifacts: []Artifact{a},
+		})
+	}
+	return groups
+}
+
+func getPRArtifacts(owner, repoName string, prNumber int) ([]Artifact, error) {
+	cmd := exec.Command("gh", "pr", "view", fmt.Sprintf("%d", prNumber),
+		"--repo", fmt.Sprintf("%s/%s", owner, repoName), "--json", "comments")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PR comments: %w", err)
+	}
+
+	var result struct {
+		Comments []struct {
+			Body string `json:"body"`
+		} `json:"comments"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse PR comments: %w", err)
+	}
+
+	for _, c := range result.Comments {
+		if strings.Contains(c.Body, "<!-- catalog:artifacts -->") {
+			return parseArtifactComment(c.Body), nil
+		}
+	}
+	return nil, nil
 }

@@ -200,3 +200,186 @@ func TestGetCurrentRepoInfo(t *testing.T) {
 		}
 	})
 }
+
+func TestParseArtifactComment(t *testing.T) {
+	const commitURL = "https://github.com/cerebrotech/catalog-platform/commit/8beeab48dffaabddb934c75bdb54538d060d3396"
+
+	// The real comment body posted on cerebrotech/catalog-platform#268, including
+	// the marker, heading and hint lines that must not be parsed as artifacts.
+	realBody := "<!-- catalog:artifacts -->\n" +
+		"Artifacts\n" +
+		"Hint: You can edit this comment and clean up old commits, add the `silence-artifact-comments` label to prevent updates, or add `verbose-artifact-comments` to print all image variations (ie ecr, floating)..\n" +
+		"- [`8beeab4`](" + commitURL + "): agent image: quay.io/domino/fleetcommand-agent:6.4.0.catalog-platform-kustomize-helmfile.8beeab4\n" +
+		"- [`8beeab4`](" + commitURL + "): deployer image: quay.io/domino/deployer:6.4.0.catalog-platform-kustomize-helmfile.8beeab4\n"
+
+	tests := map[string]struct {
+		body string
+		want []Artifact
+	}{
+		"real two-artifact comment": {
+			body: realBody,
+			want: []Artifact{
+				{
+					ShortSHA:  "8beeab4",
+					CommitURL: commitURL,
+					Label:     "agent image",
+					ImageRef:  "quay.io/domino/fleetcommand-agent:6.4.0.catalog-platform-kustomize-helmfile.8beeab4",
+				},
+				{
+					ShortSHA:  "8beeab4",
+					CommitURL: commitURL,
+					Label:     "deployer image",
+					ImageRef:  "quay.io/domino/deployer:6.4.0.catalog-platform-kustomize-helmfile.8beeab4",
+				},
+			},
+		},
+		"empty body": {
+			body: "",
+			want: nil,
+		},
+		"single well-formed artifact line": {
+			body: "- [`abc1234`](" + commitURL + "): deployer image: quay.io/domino/deployer:1.2.3\n",
+			want: []Artifact{
+				{
+					ShortSHA:  "abc1234",
+					CommitURL: commitURL,
+					Label:     "deployer image",
+					ImageRef:  "quay.io/domino/deployer:1.2.3",
+				},
+			},
+		},
+		"well-formed line alongside junk lines": {
+			body: "Artifacts\n" +
+				"just some prose that mentions an image: quay.io/domino/nope:1.0\n" +
+				"- [`abc1234`](" + commitURL + "): deployer image: quay.io/domino/deployer:1.2.3\n" +
+				"- [`deadbee`] malformed line missing the parenthesised URL\n",
+			want: []Artifact{
+				{
+					ShortSHA:  "abc1234",
+					CommitURL: commitURL,
+					Label:     "deployer image",
+					ImageRef:  "quay.io/domino/deployer:1.2.3",
+				},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := parseArtifactComment(tc.body)
+
+			if len(got) != len(tc.want) {
+				t.Fatalf("parseArtifactComment() returned %d artifacts, want %d: %+v", len(got), len(tc.want), got)
+			}
+
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Errorf("artifact[%d] = %+v, want %+v", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestGroupArtifactsByCommit(t *testing.T) {
+	a := Artifact{ShortSHA: "aaa1111", CommitURL: "https://example.com/commit/aaa1111", Label: "agent image", ImageRef: "img:a"}
+	a2 := Artifact{ShortSHA: "aaa1111", CommitURL: "https://example.com/commit/aaa1111", Label: "deployer image", ImageRef: "img:a2"}
+	b := Artifact{ShortSHA: "bbb2222", CommitURL: "https://example.com/commit/bbb2222", Label: "agent image", ImageRef: "img:b"}
+
+	tests := map[string]struct {
+		artifacts []Artifact
+		want      []ArtifactGroup
+	}{
+		"no artifacts": {
+			artifacts: nil,
+			want:      nil,
+		},
+		"single build, multiple artifacts": {
+			artifacts: []Artifact{a, a2},
+			want: []ArtifactGroup{
+				{ShortSHA: "aaa1111", CommitURL: "https://example.com/commit/aaa1111", Artifacts: []Artifact{a, a2}},
+			},
+		},
+		"multiple builds stay in first-seen order": {
+			artifacts: []Artifact{a, a2, b},
+			want: []ArtifactGroup{
+				{ShortSHA: "aaa1111", CommitURL: "https://example.com/commit/aaa1111", Artifacts: []Artifact{a, a2}},
+				{ShortSHA: "bbb2222", CommitURL: "https://example.com/commit/bbb2222", Artifacts: []Artifact{b}},
+			},
+		},
+		"interleaved shas still merge into one group per sha": {
+			artifacts: []Artifact{a, b, a2},
+			want: []ArtifactGroup{
+				{ShortSHA: "aaa1111", CommitURL: "https://example.com/commit/aaa1111", Artifacts: []Artifact{a, a2}},
+				{ShortSHA: "bbb2222", CommitURL: "https://example.com/commit/bbb2222", Artifacts: []Artifact{b}},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := groupArtifactsByCommit(tc.artifacts)
+
+			if len(got) != len(tc.want) {
+				t.Fatalf("groupArtifactsByCommit() returned %d groups, want %d: %+v", len(got), len(tc.want), got)
+			}
+
+			for i := range tc.want {
+				if got[i].ShortSHA != tc.want[i].ShortSHA || got[i].CommitURL != tc.want[i].CommitURL {
+					t.Errorf("group[%d] = %+v, want %+v", i, got[i], tc.want[i])
+				}
+				if len(got[i].Artifacts) != len(tc.want[i].Artifacts) {
+					t.Fatalf("group[%d] has %d artifacts, want %d: %+v", i, len(got[i].Artifacts), len(tc.want[i].Artifacts), got[i])
+				}
+				for j := range tc.want[i].Artifacts {
+					if got[i].Artifacts[j] != tc.want[i].Artifacts[j] {
+						t.Errorf("group[%d].artifacts[%d] = %+v, want %+v", i, j, got[i].Artifacts[j], tc.want[i].Artifacts[j])
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestParseGitHubURL(t *testing.T) {
+	tests := map[string]struct {
+		url       string
+		wantOwner string
+		wantRepo  string
+		wantOK    bool
+	}{
+		"valid github url": {
+			url:       "https://github.com/owner/repo",
+			wantOwner: "owner",
+			wantRepo:  "repo",
+			wantOK:    true,
+		},
+		"N/A url": {
+			url:    "N/A",
+			wantOK: false,
+		},
+		"non-github url": {
+			url:    "Non-GitHub",
+			wantOK: false,
+		},
+		"empty url": {
+			url:    "",
+			wantOK: false,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			owner, repo, ok := parseGitHubURL(tc.url)
+			if ok != tc.wantOK {
+				t.Fatalf("parseGitHubURL(%q) ok = %v, want %v", tc.url, ok, tc.wantOK)
+			}
+			if owner != tc.wantOwner {
+				t.Errorf("parseGitHubURL(%q) owner = %q, want %q", tc.url, owner, tc.wantOwner)
+			}
+			if repo != tc.wantRepo {
+				t.Errorf("parseGitHubURL(%q) repo = %q, want %q", tc.url, repo, tc.wantRepo)
+			}
+		})
+	}
+}

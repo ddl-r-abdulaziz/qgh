@@ -13,7 +13,7 @@ A small CLI tool that prints the GitHub URL of the current git repository, along
 ### Build from Source
 
 ```bash
-make
+make build
 ```
 
 ### Install
@@ -44,6 +44,8 @@ qgh -i
 ```
 
 Launch an interactive terminal UI to browse the current repo's URL and your open PRs — arrow keys to navigate, PgUp/PgDn to page, Enter to open the selected item in your browser, Esc/q to quit.
+
+Selecting a pull request also shows a build-artifacts side panel (parsed from a `catalog:artifacts` PR comment, if present) with the artifact image references and the commit that produced them — press `c` to open that commit in your browser.
 
 Interactive mode covers the current repository only: there is no multi-repo scanning, no PR-mode toggle, and no shell `cd` integration. It requires a real terminal; with a non-tty stdin it exits with an error.
 
